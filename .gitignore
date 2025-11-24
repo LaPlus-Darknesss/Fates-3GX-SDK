@@ -8,7 +8,7 @@ build/
 *.elf
 *.3gx
 *.map
-*.exe
+
 
 # Editor / OS noise 
 .DS_Store
