@@ -84,6 +84,15 @@
 			build.py
 				
 				Python build script that drives devkitARM and produces the .3gx file
+
+				/original/
+					
+					Place your decrypted NA v1.1 Special Edition code.bin here.
+  					This file is not committed to git.
+
+				/build/
+  					
+					Output directory for the compiled plugin (plugin_ctrpf.3gx, .elf, .map, etc.).
 				
 		
 		You don’t need to understand every folder to begin.

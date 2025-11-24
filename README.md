@@ -38,5 +38,6 @@ Right now the SDK targets:
    cp build_config.example.toml build_config.toml
 
 
-For more details, see docs/gettingstarted.md
+For setup instructions, see [docs/getting_started.md](docs/getting_started.md).
+
 

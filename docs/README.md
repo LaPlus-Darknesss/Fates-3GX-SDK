@@ -12,7 +12,7 @@ to help you understand how the pieces fit together.
 
 ### Engine Layer
 
-- [`getting_started.md] (/getting_started.md)
+- [`getting_started.md`] (/getting_started.md)
   Please read this first before moving anywhere else. 
 
 - [`engine/engine_overview.md`](engine/engine_overview.md)  
