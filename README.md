@@ -53,7 +53,7 @@ This project uses and bundles the following third-party tools:
   Original project by Nanquitas / The Pixellizer Group (ThePixellizerOSS).  
   - Upstream: https://gitlab.com/thepixellizeross/3gxtool  
   - GitHub mirror: https://github.com/Nanquitas/3gxtool  
-  - Bundled binary: `tools/3gxtool/3gxtool.exe`  
+  - Bundled binary: `build/3gxtool/3gxtool.exe`  
   - License: see `third_party/3gxtool-LICENSE.txt`
 
 
