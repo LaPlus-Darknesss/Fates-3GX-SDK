@@ -127,6 +127,17 @@
 	
 	If everything is set up correctly, you should see a build log and end up with a .3gx file under a build/ or out/ directory (the exact path/name depends on your build_config.toml).
 	
+	### 3GX tool
+
+		By default, the build scripts use the bundled `tools/3gxtool/3gxtool.exe`
+		(3DS Game eXtension Tool v1.3) to generate the final `.3gx` plugin.
+
+		If you prefer to use a system-wide installation of 3gxtool instead, you can put
+		it in your `PATH` and adjust the build configuration accordingly.
+		
+		From my testing, other versions do not compile correctly, so please use the provided one.
+
+	
 	**Common things to check if this fails:**
 	
 		devkitARM is installed and arm-none-eabi-g++ is on your **PATH**

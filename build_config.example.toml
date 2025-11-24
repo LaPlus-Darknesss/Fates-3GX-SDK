@@ -4,7 +4,7 @@
 #
 #   cp build_config.example.toml build_config.toml
 #
-# https://github.com/Nanquitas/3gxtool/releases
+# 
 
 # Then edit the paths below as needed.
 
@@ -101,6 +101,6 @@ ldflags = [
 
 [tools]
 # Path to 3gxtool.exe (from CTRPluginFramework tools).
-# Easiest pattern: drop 3gxtool.exe into build/ and leave this as-is.
-# https://github.com/Nanquitas/3gxtool/releases
+# Easiest pattern: use 3gxtool.exe in build/ and leave this as-is.
+# 
 gxtool = "build/3gxtool.exe"

@@ -15,6 +15,10 @@
 //   - Skill engine handler filters by skill and logs context.
 //
 // No gameplay behavior is changed; this is purely observational.
+//
+// v0.1: The HP logging is now tracked *per-map* using the
+//       map generation index, so this module also serves as an
+//       example of how to keep lightweight per-map state.
 
 #include "engine/skills.hpp"
 #include "engine/bus.hpp"
@@ -42,6 +46,17 @@ int   sNumDebugSkillUnits = 0;
 
 // One-time initialisation guard for Skills::InitDebugSkills().
 bool sInitialized = false;
+
+// Per-map logging state for HP-change events.
+// We track which map generation we've seen and how many lines
+// we've logged for that generation, then cap at 64 per map.
+struct DebugHpLogState
+{
+    unsigned int lastGeneration;
+    int          countThisMap;
+};
+
+DebugHpLogState sHpLogState = { 0u, 0 };
 
 void ClearDebugSkillUnits()
 {
@@ -100,8 +115,12 @@ bool UnitHasDebugSkill(void *unitRaw)
 void MapEnd_DebugSkillReset(const MapContext &ctx)
 {
     (void)ctx;
+
     ClearDebugSkillUnits();
-    Logf("SkillEngine[Debug]: MapEnd -> cleared debug-skill table");
+    sHpLogState.countThisMap = 0;
+    sHpLogState.lastGeneration = 0u;
+
+    Logf("SkillEngine[Debug]: MapEnd -> cleared debug-skill table and reset HP log state");
 }
 
 // Skill learn: if a unit successfully learns the debug skill, track it.
@@ -119,6 +138,7 @@ void SkillLearn_DebugTrackUnit(const SkillLearnContext &ctx)
 }
 
 // HP change: log HP changes only if the *target* has the debug skill.
+// Logging is capped *per map* using the generation index.
 void HpChange_DebugLogForMarkedUnit(const HpChangeContext &ctx)
 {
     const HpEvent &ev = ctx.core;
@@ -130,20 +150,30 @@ void HpChange_DebugLogForMarkedUnit(const HpChangeContext &ctx)
     if (!UnitHasDebugSkill(targetUnit))
         return;
 
-    // Lightweight logging so that the handler is firing,
-    // but capped so it won't spam the log forever.
-    static int sLogCount = 0;
-    if (sLogCount < 64)
+    // Handle map-generation boundaries. If the generation changes,
+    // treat it as a new map and reset the per-map log counter.
+    unsigned int gen = static_cast<unsigned int>(ctx.map.generation);
+    if (gen != sHpLogState.lastGeneration)
     {
-        Logf("SkillEngine[Debug]: HpChange unit=%p amt=%d flags=0x%08X gen=%u side=%s sideTurn=%u",
-             targetUnit,
-             ev.amount,
-             static_cast<unsigned>(ev.flags),
-             static_cast<unsigned>(ctx.map.generation),
-             TurnSideToString(ctx.turn.side),
-             static_cast<unsigned>(ctx.turn.sideTurnIndex));
-        ++sLogCount;
+        sHpLogState.lastGeneration = gen;
+        sHpLogState.countThisMap   = 0;
     }
+
+    // Lightweight logging so that the handler is firing, but capped
+    // per map so it won't spam the log indefinitely.
+    if (sHpLogState.countThisMap >= 64)
+        return;
+
+    ++sHpLogState.countThisMap;
+
+    Logf("SkillEngine[Debug]: HpChange unit=%p amt=%d flags=0x%08X gen=%u side=%s sideTurn=%u (log=%d/64)",
+         targetUnit,
+         ev.amount,
+         static_cast<unsigned>(ev.flags),
+         static_cast<unsigned>(ctx.map.generation),
+         TurnSideToString(ctx.turn.side),
+         static_cast<unsigned>(ctx.turn.sideTurnIndex),
+         sHpLogState.countThisMap);
 }
 
 } // anonymous namespace
@@ -157,6 +187,8 @@ void InitDebugSkills()
 
     sInitialized = true;
     ClearDebugSkillUnits();
+    sHpLogState.lastGeneration = 0u;
+    sHpLogState.countThisMap   = 0;
 
     bool okEnd   = RegisterMapEndHandler(&MapEnd_DebugSkillReset);
     bool okLearn = RegisterSkillLearnHandler(&SkillLearn_DebugTrackUnit);
@@ -171,8 +203,9 @@ void InitDebugSkills()
     }
     else
     {
-        Logf("SkillEngine[Debug]: InitDebugSkills complete (debugSkillId=0x%04X)",
-             static_cast<unsigned>(kDebugSkillId));
+        Logf("SkillEngine[Debug]: InitDebugSkills complete (debugSkillId=0x%04X, hpLogCapPerMap=%d)",
+             static_cast<unsigned>(kDebugSkillId),
+             64);
     }
 }
 
