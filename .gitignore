@@ -1,0 +1,21 @@
+# Game data / dumps
+original/
+docs/strings/code_strings_all.txt
+
+# Build output
+build/
+*.o
+*.elf
+*.3gx
+*.map
+*.exe
+
+# Editor / OS noise 
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+*.swp
+
+# Local build configuration (per-user)
+build_config.toml

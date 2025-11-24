@@ -1,0 +1,106 @@
+# build_config.example.toml
+#
+# Copy this file to build_config.toml and adjust paths for your own devkitPro / CTRPF setup.
+#
+#   cp build_config.example.toml build_config.toml
+#
+# https://github.com/Nanquitas/3gxtool/releases
+
+# Then edit the paths below as needed.
+
+output_name = "plugin_ctrpf"
+build_dir   = "build/3GX"
+
+# Path to CTRPF plugin metadata
+plginfo = "plugin/plginfo.yml"
+
+# Source files to compile into the plugin
+sources_glob = [
+  "plugin/**/*.cpp",
+  "plugin/**/*.c",
+  "plugin/**/*.s"
+]
+
+# Include search paths
+include_dirs = [
+  "plugin/include",
+
+  # devkitPro / libctru headers
+  "C:/devkitPro/libctru/include",
+
+  # CTRPluginFramework headers (adjust to your install)
+  "C:/devkitPro/libctrpf/include"
+]
+
+# Preprocessor defines
+defines = [ "ARM11", "__3DS__", "N3DS" ]
+
+# --- Common arch flags (ARMv6K, hard-float VFP) ---
+arch_flags = [
+  "-marm",
+  "-march=armv6k", "-mtune=mpcore",
+  "-mfpu=vfp", "-mfloat-abi=hard"
+]
+
+# C++ compiler flags
+cxxflags = [
+  "-mtp=soft",
+  "-std=gnu++17", "-O2",
+  "-fno-exceptions", "-fno-rtti",
+  "-fno-unwind-tables", "-fno-asynchronous-unwind-tables",
+  "-fno-use-cxa-atexit",
+  "-fdata-sections", "-ffunction-sections",
+  "-fno-threadsafe-statics",
+
+  # Arch flags:
+  "-marm", "-march=armv6k", "-mtune=mpcore", "-mfpu=vfp", "-mfloat-abi=hard"
+]
+
+# C compiler flags
+cflags = [
+  "-std=gnu11", "-O2", "-mtp=soft",
+  "-fdata-sections", "-ffunction-sections",
+
+  # Arch flags:
+  "-marm", "-march=armv6k", "-mtune=mpcore", "-mfpu=vfp", "-mfloat-abi=hard"
+]
+
+# ASM flags (if you add any .s)
+asflags = [
+  "-marm", "-march=armv6k", "-mfpu=vfp", "-mfloat-abi=hard"
+]
+
+# Linker flags
+ldflags = [
+  # Match compile-time arch flags so the correct multilibs are chosen:
+  "-marm", "-march=armv6k", "-mtune=mpcore", "-mfpu=vfp", "-mfloat-abi=hard",
+
+  "-Wl,--gc-sections",
+  "-Wl,-Map=build/3GX/plugin_ctrpf.map",
+
+  # CTRPF 3GX linker script (adjust if your path differs)
+  "-Wl,-T,C:/devkitPro/libctrpf/lib/3gx.ld",
+
+  # Library search paths (adjust DEVKITPRO path / GCC version)
+  "-LC:/devkitPro/libctrpf/lib",
+  "-LC:/devkitPro/libctru/lib",
+  "-LC:/devkitPro/devkitARM/arm-none-eabi/lib/armv6k/fpu",
+  "-LC:/devkitPro/devkitARM/lib/gcc/arm-none-eabi/15.1.0/armv6k/fpu",
+
+  # Group to resolve circular deps
+  "-Wl,--start-group",
+  "-lctrpf",
+  "-lctru",
+  "-lstdc++",
+  "-lc",
+  "-lm",
+  "-lsysbase",
+  "-lgcc",
+  "-Wl,--end-group"
+]
+
+[tools]
+# Path to 3gxtool.exe (from CTRPluginFramework tools).
+# Easiest pattern: drop 3gxtool.exe into build/ and leave this as-is.
+# https://github.com/Nanquitas/3gxtool/releases
+gxtool = "build/3gxtool.exe"
