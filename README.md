@@ -1,6 +1,10 @@
 # Fates-3GX-SDK (Fire Emblem Fates plugin framework)
 
-> **Status:** early alpha – hooks + engine + example modules are in place, APIs may still change.
+## Project status
+
+This is an **early alpha** aimed at experienced modders.
+APIs, event contexts, and hook sets may change between versions.
+If you build anything on top of this, expect breaking changes
 
 This project is a **CTRPF/3GX plugin** for Fire Emblem Fates (3DS) that turns low-level
 game hooks into a small, C++-friendly **engine**:
