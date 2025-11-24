@@ -19,3 +19,8 @@ Thumbs.db
 
 # Local build configuration (per-user)
 build_config.toml
+
+# Windows trash
+Desktop.ini
+desktop.ini
+Thumbs.db
