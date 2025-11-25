@@ -1,11 +1,11 @@
 // engine/combat.cpp
 //
-// Implementation of the post-battle HP modifier pipeline.
-// Hooks like SEQ_HpDamage call ApplyPostBattleHpModifiers(), which
-// builds a context snapshot and then runs all registered modifiers.
+// Implementation of the final-damage modifier pipeline. This runs
+// at the same stage as vanilla's final damage calculation, so anything
+// you do here will show up in the forecast and actual HP loss.
 
 #include "engine/combat.hpp"
-#include "core/runtime.hpp"     // gMapState, gCurrentTurnSide, TurnSide
+#include "core/runtime.hpp"   // gMapState, gCurrentTurnSide, TurnSide
 #include "util/debug_log.hpp"
 
 namespace Fates {
@@ -14,13 +14,11 @@ namespace Combat {
 
 namespace {
 
-constexpr int kMaxPostBattleHpModifiers = 8;
+constexpr int kMaxDamageModifiers = 8;
 
-PostBattleHpModifierFn sModifiers[kMaxPostBattleHpModifiers] = {};
-int                    sNumModifiers                         = 0;
+DamageModifierFn sModifiers[kMaxDamageModifiers] = {};
+int              sNumModifiers                   = 0;
 
-// Local helpers: duplicate the small map/turn snapshot logic
-// from engine/events.cpp so this module can work independently.
 static MapContext BuildMapContext()
 {
     MapContext ctx{};
@@ -50,59 +48,57 @@ static TurnContext BuildTurnContext(TurnSide side)
 
 } // anonymous namespace
 
-bool RegisterPostBattleHpModifier(PostBattleHpModifierFn fn)
+bool RegisterDamageModifier(DamageModifierFn fn)
 {
-    if (fn == nullptr)
+    if (!fn)
         return false;
 
-    if (sNumModifiers >= kMaxPostBattleHpModifiers)
+    if (sNumModifiers >= kMaxDamageModifiers)
     {
-        Logf("Engine::Combat::RegisterPostBattleHpModifier: capacity full (%d)",
-             kMaxPostBattleHpModifiers);
+        Logf("Engine::Combat::RegisterDamageModifier: capacity full (%d)",
+             kMaxDamageModifiers);
         return false;
     }
 
     sModifiers[sNumModifiers++] = fn;
-    Logf("Engine::Combat::RegisterPostBattleHpModifier: registered #%d",
+    Logf("Engine::Combat::RegisterDamageModifier: registered #%d",
          sNumModifiers);
     return true;
 }
 
-std::uint32_t ApplyPostBattleHpModifiers(void        *seq,
-                                         int          mode,
-                                         int          slot,
-                                         std::uint32_t hp,
-                                         void        *attackerRaw)
+int ApplyDamageModifiers(void  *root,
+                         void  *calc,
+                         void  *attackerRaw,
+                         void  *defenderRaw,
+                         int    baseDamage)
 {
-    // Start from the engine-provided value.
-    int currentHp = static_cast<int>(hp);
+    // If nothing is registered, just clamp and return.
+    if (sNumModifiers == 0)
+        return (baseDamage < 0) ? 0 : baseDamage;
 
-    // Build a best-effort map/turn snapshot.
     TurnSide side =
         gMapState.mapActive ? gCurrentTurnSide : TurnSide::Unknown;
 
-    PostBattleHpContext ctx{};
+    DamageContext ctx{};
     ctx.map        = BuildMapContext();
     ctx.turn       = BuildTurnContext(side);
     ctx.attacker   = UnitHandle(attackerRaw);
-    ctx.target     = UnitHandle(nullptr); // filled in later when RE'd
-    ctx.seq        = seq;
-    ctx.slot       = slot;
-    ctx.mode       = mode;
-    ctx.originalHp = hp;
+    ctx.defender   = UnitHandle(defenderRaw);
+    ctx.root       = root;
+    ctx.calc       = calc;
+    ctx.baseDamage = baseDamage;
 
+    int current = baseDamage;
     for (int i = 0; i < sNumModifiers; ++i)
     {
-        if (sModifiers[i] != nullptr)
-            currentHp = sModifiers[i](ctx, currentHp);
+        if (sModifiers[i])
+            current = sModifiers[i](ctx, current);
     }
 
-    // Clamp to a sane range: HP can't go below 0.
-    if (currentHp < 0)
-        currentHp = 0;
+    if (current < 0)
+        current = 0;
 
-    // If we ever want a max-HP upper clamp, it can be applied here.
-    return static_cast<std::uint32_t>(currentHp);
+    return current;
 }
 
 } // namespace Combat

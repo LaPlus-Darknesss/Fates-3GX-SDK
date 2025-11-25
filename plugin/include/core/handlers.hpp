@@ -31,10 +31,11 @@ int Hook_BTL_CritCalc_Main(void *unit,
 
 
 // r0 = battle_context_ptr, r1 = attacker_unit_ptr, r2 = defender_unit_ptr
-void Hook_BTL_FinalDamage_Pre(void *a0,
-                              void *a1,
-                              void *a2,
-							  void *a3);
+std::uint32_t Hook_BTL_FinalDamage_Pre(void *calc,
+                                       void *root,
+                                       void *arg2,
+                                       void *arg3);
+
 
 // r0 = battle_context_ptr, r1 = attacker_unit_ptr, r2 = defender_unit_ptr
 void Hook_BTL_FinalDamage_Post(void *battleContext,

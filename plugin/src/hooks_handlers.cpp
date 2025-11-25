@@ -420,69 +420,68 @@ int Hook_BTL_CritCalc_Main(void * unit,
 }
 
 
-void Hook_BTL_FinalDamage_Pre(void *calcRaw,
-                              void *arg1,
-                              void *arg2,
-                              void *arg3)
+// BTL_FinalDamage_Pre MITM:
+// - calls vanilla final-damage function
+// - lets the engine modify that damage
+// - returns the final value (used by forecast + HP application)
+std::uint32_t Hook_BTL_FinalDamage_Pre(void *calc,
+                                       void *root,
+                                       void *arg2,
+                                       void *arg3)
 {
     using namespace Fates;
     using CTRPluginFramework::HookContext;
 
-    // Count invocations for telemetry.
+    // Telemetry: track how often this hook fires.
     std::size_t idx = IndexOf(HookId_BTL_FinalDamage_Pre);
     gHookCount[idx]++;
 
-    // Peel the BattleRoot off the calculator and remember it for the
-    // upcoming SEQ_Battle_UpdateHp / SEQ_HpDamage pass.
-    BattleRoot *root = GetBattleRoot(calcRaw);
-    sLastBattleRoot  = root;
+    // Track the battle root so we can peel out the attacker pointer.
+    sLastBattleRoot = static_cast<BattleRoot *>(root);
 
-    // Only do deep logging for the first few calls so log will be readable.
-    static int sLogCount = 0;
-    if (sLogCount < 16)
+    // Call the original FinalDamage function via CTRPF.
+    HookContext &ctx = HookContext::GetCurrent();
+    std::uint32_t baseDamage =
+        ctx.OriginalFunction<std::uint32_t,
+                             void *, void *, void *, void *>(
+            calc,
+            root,
+            arg2,
+            arg3);
+
+    // Best-effort attacker pointer: mainUnit from the root.
+    void *attackerRaw = nullptr;
+    if (sLastBattleRoot != nullptr)
+        attackerRaw = static_cast<void *>(sLastBattleRoot->mainUnit);
+
+    // Defender not cleanly mapped yet; leave null for now.
+    void *defenderRaw = nullptr;
+
+    int finalDamage = Engine::Combat::ApplyDamageModifiers(
+        root,
+        calc,
+        attackerRaw,
+        defenderRaw,
+        static_cast<int>(baseDamage));
+
+    // Optional: log only when something actually changed, capped.
+    if (finalDamage != static_cast<int>(baseDamage))
     {
-        Logf("Hook_BTL_FinalDamage_Pre: calc=%p root=%p arg1=%p arg2=%p arg3=%p (n=%d)",
-             calcRaw, root, arg1, arg2, arg3, sLogCount + 1);
-
-        if (root != nullptr)
+        static int sLogCount = 0;
+        if (sLogCount < 32)
         {
-            u32 *w = reinterpret_cast<u32 *>(root);
-
-            Logf("  root[0x00..0x3C] = "
-                 "{%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,"
-                 "%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X}",
-                 w[0],  w[1],  w[2],  w[3],
-                 w[4],  w[5],  w[6],  w[7],
-                 w[8],  w[9],  w[10], w[11],
-                 w[12], w[13], w[14], w[15]);
-
-            Unit *mainUnit = root->mainUnit;
-            u32   flags    = root->flags;
-            int   unk14    = root->unk14;
-            u32   unk18    = root->unk18;
-            u32   unk1C    = root->unk1C;
-
-            Logf("  root view: main=%p flags=%08X unk14=%d unk18=%u unk1C=%u",
-                 mainUnit, flags, unk14, unk18, unk1C);
-
-            // NEW: see whether this main unit is marked as having the
-            // debug skill 0x000E for this map. (see above on for debug skill info)
-            if (DebugSkills_Has(mainUnit))
-            {
-                Logf("  [DebugSkill] main unit %p has debug skill 0x%04X (BTL_FinalDamage_Pre)",
-                     mainUnit,
-                     static_cast<unsigned>(kDebugSkillId));
-            }
+            Logf("Hook_BTL_FinalDamage_Pre: base=%d -> final=%d atk=%p (n=%d)",
+                 static_cast<int>(baseDamage),
+                 finalDamage,
+                 attackerRaw,
+                 sLogCount + 1);
+            ++sLogCount;
         }
-
-        ++sLogCount;
     }
 
-    // Pure MITM pass-through for now.
-    HookContext &ctx = HookContext::GetCurrent();
-    ctx.OriginalFunction<void, void *, void *, void *, void *>(
-        calcRaw, arg1, arg2, arg3);
+    return static_cast<std::uint32_t>(finalDamage);
 }
+
 
 // Depricated, do not rely on or use, left only as a named concept.
 
@@ -547,27 +546,19 @@ void Hook_BTL_GuardGauge_Spend(void * battleContext,
 // HP and map damage hooks
 // ---------------------------------------------------------------------
 
-// Internal glue: call into the combat engine's post-battle HP
-// modifier pipeline. Name kept for historical reasons.
+// Internal glue for SEQ_HpDamage. For now we do NOT use post-HP
+// modifications; all real damage changes happen in BTL_FinalDamage_Pre
+// so they show up in the forecast like vanilla.
 static std::uint32_t ApplyPostBattleHpDebug(void *seq,
                                             int   mode,
                                             int   slot,
                                             std::uint32_t hp)
 {
-    using namespace Fates;
-
-    void *attackerRaw = nullptr;
-    if (sLastBattleRoot != nullptr)
-        attackerRaw = static_cast<void *>(sLastBattleRoot->mainUnit);
-
-    return Engine::Combat::ApplyPostBattleHpModifiers(
-        seq,
-        mode,
-        slot,
-        hp,
-        attackerRaw);
+    (void)seq;
+    (void)mode;
+    (void)slot;
+    return hp;
 }
-
 
 void Hook_SEQ_HpDamage(void *seq,
                        int   mode)
