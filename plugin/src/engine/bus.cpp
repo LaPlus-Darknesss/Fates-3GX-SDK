@@ -24,6 +24,7 @@ constexpr int kMaxTurnEndHandlers    = 8;
 constexpr int kMaxKillHandlers       = 8;
 constexpr int kMaxHpChangeHandlers = 16; 
 constexpr int kMaxRngHandlers        = 4;
+constexpr int kMaxHitCalcHandlers    = 8;  //
 constexpr int kMaxLevelUpHandlers    = 4;
 constexpr int kMaxSkillLearnHandlers = 4;
 constexpr int kMaxItemGainHandlers   = 4;
@@ -36,6 +37,7 @@ TurnEndHandler    sTurnEndHandlers[kMaxTurnEndHandlers]       = {};
 KillHandler       sKillHandlers[kMaxKillHandlers]             = {};
 HpChangeHandler  sHpChangeHandlers[kMaxHpChangeHandlers]   = {};
 RngHandler        sRngHandlers[kMaxRngHandlers]               = {};
+HitCalcHandler    sHitCalcHandlers[kMaxHitCalcHandlers]		 = {};
 LevelUpHandler    sLevelUpHandlers[kMaxLevelUpHandlers]       = {};
 SkillLearnHandler sSkillLearnHandlers[kMaxSkillLearnHandlers] = {};
 ItemGainHandler   sItemGainHandlers[kMaxItemGainHandlers]     = {};
@@ -46,6 +48,7 @@ int sNumTurnBeginHandlers  = 0;
 int sNumTurnEndHandlers    = 0;
 int sNumKillHandlers       = 0;
 int sNumHpChangeHandlers  = 0;
+int sNumHitCalcHandlers    = 0;  
 int sNumRngHandlers        = 0;
 int sNumLevelUpHandlers    = 0;
 int sNumSkillLearnHandlers = 0;
@@ -145,6 +148,15 @@ bool RegisterRngHandler(RngHandler fn)
                            "RegisterRngHandler");
 }
 
+bool RegisterHitCalcHandler(HitCalcHandler fn)
+{
+    return RegisterHandler(fn,
+                           sHitCalcHandlers,
+                           sNumHitCalcHandlers,
+                           kMaxHitCalcHandlers,
+                           "RegisterHitCalcHandler");
+}
+
 bool RegisterLevelUpHandler(LevelUpHandler fn)
 {
     return RegisterHandler(fn,
@@ -207,6 +219,11 @@ void DispatchHpChange(const HpChangeContext &ctx)
 void DispatchRngCall(const RngContext &ctx)
 {
     DispatchHandlers(ctx, sRngHandlers, sNumRngHandlers);
+}
+
+void DispatchHitCalc(const HitCalcContext &ctx)
+{
+    DispatchHandlers(ctx, sHitCalcHandlers, sNumHitCalcHandlers);
 }
 
 void DispatchLevelUp(const LevelUpContext &ctx)

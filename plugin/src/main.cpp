@@ -9,9 +9,8 @@
 #include "hook_debug.hpp"           // Debug UI for hooks (DumpHookCountsToFile, DumpKillEventsToLog)
 #include "core/hook_manager.hpp"
 #include "core/runtime.hpp"
-#include "engine/hp_kill_tracker.hpp"   // HP + kill summary engine
-#include "engine/damage_stats_module.hpp"
-#include "engine/rng_stats_module.hpp"
+#include "engine/init.hpp"
+
 
 using namespace CTRPluginFramework;
 
@@ -237,17 +236,9 @@ static void MainImpl(void)
     Fates::HookManager::InstallCoreHooks();
     Logf("MainImpl: HookManager::InstallCoreHooks() returned");
 
-    // Register engine-level HP + kill tracker handlers on the event bus.
-    Fates::Engine::HpKillTracker_RegisterHandlers();
-    Logf("MainImpl: HpKillTracker_RegisterHandlers() done");
-
-    // Register example stats modules. These are non-invasive modules
-    // that only log via the engine bus and serve as templates.
-    Fates::Engine::DamageStatsModule_RegisterHandlers();
-    Logf("MainImpl: DamageStatsModule_RegisterHandlers() done");
-
-    Fates::Engine::RngStatsModule_RegisterHandlers();
-    Logf("MainImpl: RngStatsModule_RegisterHandlers() done");
+    Logf("MainImpl: InitCoreModules() begin");
+    bool engineOk = Fates::Engine::InitCoreModules();
+    Logf("MainImpl: InitCoreModules() -> %d", engineOk ? 1 : 0);
 
     // Install optional hooks as pure MITM pass-through if/when needed.
     // Do not enable for now; it may cause instability.

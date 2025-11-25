@@ -75,6 +75,11 @@ static void HandleMapBegin(const MapContext &ctx)
 
 static void HandleRng(const RngContext &ctx)
 {
+    // Only track RNG while an actual map is active.
+    // This keeps stats focused on gameplay RNG and ignores menu/post-map noise.
+    if (!gMapState.mapActive)
+        return;
+
     ++gRngStats.totalCalls;
 
     // Attribute call to the current side if known.

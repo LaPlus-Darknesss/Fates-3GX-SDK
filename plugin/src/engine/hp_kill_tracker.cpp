@@ -8,6 +8,7 @@
 #include "engine/hp_kill_tracker.hpp"
 #include "engine/bus.hpp"
 #include "engine/events.hpp"
+#include "engine/unit_state.hpp"
 #include "util/debug_log.hpp"
 
 namespace Fates {
@@ -15,15 +16,19 @@ namespace Engine {
 
 namespace {
 
-// How many distinct units to track per map for per-unit stats.
-constexpr std::size_t kMaxTrackedUnits = 64;
-
 // Per-side HP stats (indices 0..3 correspond to TurnSide::Side0..Side3).
 SideHpStats sSideStats[4] = {};
 
-// Per-unit stats.
-UnitHpStatsSnapshot sUnitStats[kMaxTrackedUnits];
-std::size_t         sNumUnitStats = 0;
+// Simple per-unit accumulators, indexed by UnitStateIndex.
+// The UnitState registry guarantees that indices are dense in
+// [0, UnitState_GetCount()) for the current map.
+struct UnitHpAccum
+{
+    std::int32_t damageTaken;
+    std::int32_t healingReceived;
+};
+
+UnitHpAccum sUnitHpAccum[kMaxUnitStates];
 
 // Kill counts by side (0..3) + total kills for the current map.
 std::uint32_t sKillsBySide[4] = {};
@@ -44,45 +49,30 @@ static int SideToIndex(TurnSide side)
     return idx;
 }
 
-// Find or create the per-unit stats entry for a UnitHandle.
-static UnitHpStatsSnapshot *FindOrCreateUnitStats(UnitHandle unit)
-{
-    void *raw = unit.Raw();
-    if (raw == nullptr)
-        return nullptr;
-
-    // Look for an existing entry.
-    for (std::size_t i = 0; i < sNumUnitStats; ++i)
-    {
-        if (sUnitStats[i].unit.Raw() == raw)
-            return &sUnitStats[i];
-    }
-
-    // Need a new entry.
-    if (sNumUnitStats >= kMaxTrackedUnits)
-        return nullptr;  // silently drop if at capacity
-
-    UnitHpStatsSnapshot &slot = sUnitStats[sNumUnitStats++];
-    slot.unit            = unit;
-    slot.damageTaken     = 0;
-    slot.healingReceived = 0;
-    return &slot;
-}
-
 // Reset all states for a new map.
 static void ResetForMap(const MapContext &ctx)
 {
+    // Reset the shared per-map unit registry first so all indices
+    // and handles are fresh for this battle.
+    UnitState_ResetForMap();
+
     for (int i = 0; i < 4; ++i)
     {
-        sSideStats[i].damageDealt   = 0;
-        sSideStats[i].healingDone   = 0;
-        sKillsBySide[i]             = 0;
+        sSideStats[i].damageDealt = 0;
+        sSideStats[i].healingDone = 0;
+        sKillsBySide[i]           = 0;
     }
 
-    sNumUnitStats     = 0;
-    sTotalKills       = 0;
-    sMapGeneration    = ctx.generation;
-    sTotalTurnsAtEnd  = 0;
+    // Clear per-unit accumulators.
+    for (std::size_t i = 0; i < kMaxUnitStates; ++i)
+    {
+        sUnitHpAccum[i].damageTaken     = 0;
+        sUnitHpAccum[i].healingReceived = 0;
+    }
+
+    sTotalKills      = 0;
+    sMapGeneration   = ctx.generation;
+    sTotalTurnsAtEnd = 0;
 
     Logf("HpKillTracker: MapBegin gen=%u seq=%p",
          static_cast<unsigned>(ctx.generation),
@@ -123,13 +113,21 @@ static void OnMapEndHandler(const MapContext &ctx)
     }
 
     // Per-unit stats: log a capped number to avoid spam.
-    const std::size_t maxLogUnits = 32;
-    for (std::size_t i = 0; i < sNumUnitStats && i < maxLogUnits; ++i)
+    const UnitStateEntry *entries     = UnitState_GetEntries();
+    std::size_t           count       = UnitState_GetCount();
+    const std::size_t     maxLogUnits = 32;
+
+    if (count > kMaxUnitStates)
+        count = kMaxUnitStates;
+
+    for (std::size_t i = 0; i < count && i < maxLogUnits; ++i)
     {
-        const UnitHpStatsSnapshot &u = sUnitStats[i];
+        const UnitStateEntry &e = entries[i];
+        const UnitHpAccum    &u = sUnitHpAccum[i];
+
         Logf("  Unit%02u: ptr=%p dmgTaken=%d healRecv=%d",
              static_cast<unsigned>(i),
-             u.unit.Raw(),
+             e.unit.Raw(),
              static_cast<int>(u.damageTaken),
              static_cast<int>(u.healingReceived));
     }
@@ -156,18 +154,24 @@ static void OnHpChangeHandler(const HpChangeContext &hc)
         }
     }
 
-    // Update per-target stats.
-    UnitHpStatsSnapshot *slot = FindOrCreateUnitStats(ev.target);
-    if (!slot)
+    // Update per-target stats using the shared UnitState registry.
+    UnitStateIndex idx = UnitState_GetOrCreate(ev.target);
+    if (idx == kInvalidUnitStateIndex)
         return;
+
+    std::size_t slotIdx = static_cast<std::size_t>(idx);
+    if (slotIdx >= kMaxUnitStates)
+        return; // should not happen, but guard anyway
+
+    UnitHpAccum &slot = sUnitHpAccum[slotIdx];
 
     if (ev.amount > 0)
     {
-        slot->damageTaken += ev.amount;
+        slot.damageTaken += ev.amount;
     }
     else if (ev.amount < 0)
     {
-        slot->healingReceived += -ev.amount;
+        slot.healingReceived += -ev.amount;
     }
 }
 
@@ -210,8 +214,60 @@ const SideHpStats *HpKillTracker_GetSideStats()
 void HpKillTracker_GetUnitStats(const UnitHpStatsSnapshot *&outArray,
                                 std::size_t               &outCount)
 {
-    outArray = sUnitStats;
-    outCount = sNumUnitStats;
+    // Snapshot current per-unit stats into a stable array for callers.
+    static UnitHpStatsSnapshot sSnapshot[kMaxUnitStates];
+
+    const UnitStateEntry *entries = UnitState_GetEntries();
+    std::size_t           count   = UnitState_GetCount();
+
+    if (count > kMaxUnitStates)
+        count = kMaxUnitStates;
+
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        sSnapshot[i].unit            = entries[i].unit;
+        sSnapshot[i].damageTaken     = sUnitHpAccum[i].damageTaken;
+        sSnapshot[i].healingReceived = sUnitHpAccum[i].healingReceived;
+    }
+
+    outArray = sSnapshot;
+    outCount = count;
+}
+
+const SideHpStats *HpKillTracker_GetSideStatsFor(TurnSide side)
+{
+    int idx = SideToIndex(side);
+    if (idx < 0 || idx >= 4)
+        return nullptr;
+
+    return &sSideStats[idx];
+}
+
+bool HpKillTracker_QueryUnitStats(UnitHandle           unit,
+                                  UnitHpStatsSnapshot &outStats)
+{
+    void *raw = unit.Raw();
+    if (!raw)
+        return false;
+
+    const UnitStateEntry *entries = UnitState_GetEntries();
+    std::size_t           count   = UnitState_GetCount();
+
+    if (count > kMaxUnitStates)
+        count = kMaxUnitStates;
+
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        if (entries[i].unit.Raw() == raw)
+        {
+            outStats.unit            = entries[i].unit;
+            outStats.damageTaken     = sUnitHpAccum[i].damageTaken;
+            outStats.healingReceived = sUnitHpAccum[i].healingReceived;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 } // namespace Engine

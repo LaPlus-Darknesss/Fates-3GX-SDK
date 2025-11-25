@@ -11,7 +11,7 @@
 //      engine/bus.cpp.
 //
 // Later, separate engine subsystems (HP engine, skill engine,
-// roguelike engine, UI overlays, etc.) will register handlers
+// UI overlays, etc.) will register handlers
 // with the bus instead of touching hooks directly.
 
 #include <unordered_map>
@@ -176,9 +176,20 @@ void OnRngCall(void *state,
     rc.bound  = bound;
     rc.result = result;
 
-    // Cap logging so performance does not die.
-    static int sLogCount = 0;
-    if (sLogCount < 64)
+    // Cap logging so performance does not die, but:
+    //  - reset the cap per map (generation)
+    //  - only log while a map is actually active, so menus/etc. don't
+    //    burn all 64 lines before gameplay starts.
+    static std::uint32_t sLastGeneration = 0;
+    static int           sLogCount       = 0;
+
+    if (mc.generation != sLastGeneration)
+    {
+        sLastGeneration = mc.generation;
+        sLogCount       = 0;
+    }
+
+    if (gMapState.mapActive && sLogCount < 64)
     {
         Logf("Engine::OnRngCall: state=%p raw=%08X bound=%u -> %u "
              "gen=%u side=%s sideTurn=%u totalTurns=%u (n=%d)",
@@ -194,8 +205,53 @@ void OnRngCall(void *state,
         ++sLogCount;
     }
 
-    // Fan out to any RNG listeners (likely none for now).
+    // Fan out to RNG listeners (stats module, etc.).
     DispatchRngCall(rc);
+}
+
+void OnHitCalc(int baseRate,
+               int result)
+{
+    // Use the current turn side if a map is active; otherwise fall
+    // back to Unknown (e.g. menu/arena edge cases).
+    TurnSide side =
+        gMapState.mapActive ? gCurrentTurnSide : TurnSide::Unknown;
+
+    TurnContext tc = BuildTurnContext(side);
+    MapContext  mc = tc.map;
+
+    HitCalcContext ctx{};
+    ctx.map      = mc;
+    ctx.turn     = tc;
+    ctx.baseRate = baseRate;
+    ctx.result   = result;
+
+    // Lightweight log with a cap so we don't fry the log file.
+    static std::uint32_t sLastGeneration = 0;
+    static int           sLogCount       = 0;
+
+    if (mc.generation != sLastGeneration)
+    {
+        sLastGeneration = mc.generation;
+        sLogCount       = 0;
+    }
+
+    if (gMapState.mapActive && sLogCount < 128)
+    {
+        Logf("Engine::OnHitCalc: base=%d -> result=%d "
+             "gen=%u side=%s sideTurn=%u totalTurns=%u (n=%d)",
+             baseRate,
+             result,
+             static_cast<unsigned>(mc.generation),
+             TurnSideToString(side),
+             static_cast<unsigned>(tc.sideTurnIndex),
+             static_cast<unsigned>(mc.totalTurns),
+             sLogCount + 1);
+        ++sLogCount;
+    }
+
+    // Fan out through the bus so modules can gather hit stats etc.
+    DispatchHitCalc(ctx);
 }
 
 // Canonical HP sync driver. Called from Hook_UNIT_UpdateCloneHP

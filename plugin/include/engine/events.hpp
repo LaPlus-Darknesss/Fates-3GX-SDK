@@ -85,6 +85,17 @@ struct RngContext
     std::uint32_t result; // final scaled result returned to the game
 };
 
+// Hit calculation context for RandomCalculateHit-style calls.
+// This is intentionally minimal for now: we only know the base input
+// rate and the final result returned by the engine.
+struct HitCalcContext
+{
+    MapContext   map;      // snapshot when hit calc was performed
+    TurnContext  turn;     // whose turn it was (best-effort)
+    int          baseRate; // input parameter to RandomCalculateHit
+    int          result;   // value returned by the core function
+};
+
 // Level-up context
 struct LevelUpContext
 {
@@ -185,6 +196,12 @@ void OnActionEnd(void *inst,
                  std::uint32_t sideRaw,
                  TurnSide side,
                  std::uint32_t unk28);
+				 
+// Called from Hook_BTL_HitCalc_Main.
+// Provides a high-level view of hit RNG without modifying it (yet).
+void OnHitCalc(int baseRate,
+               int result);
+
 
 } // namespace Engine
 } // namespace Fates

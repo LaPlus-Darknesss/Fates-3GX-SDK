@@ -1,233 +1,308 @@
 // engine/skills.cpp
 //
-// First-pass skill engine wiring for Fates-3GX-SDK.
+// First-pass skill engine wiring.
 //
-// This module registers handlers with the engine event bus and
-// implements a single debug feature:
+// This module now does two things:
 //
-//   "HP Change Logging for Debug Skill":
-//       Any unit that learns a specific debug skill ID will have
-//       its HP change events logged via the engine event bus.
+//   1) Maintains a lightweight per-map skill table based on
+//      UNIT_SkillLearn (fed from hooks_handlers.cpp). Other engine
+//      modules can query this via Skills::UnitHasSkill().
 //
-// The goal is to prove end-to-end wiring without mutating HP:
-//   - Unit_AddEquipSkill -> OnUnitSkillLearn -> skill table
-//   - UNIT_UpdateCloneHP -> OnUnitHpSync -> OnHpChange
-//   - Skill engine handler filters by skill and logs context.
+//   2) Provides a debug-only “flat damage increase” observer on the
+//      HP-change event bus. This remains read-only for now; we just
+//      log what the damage *would* look like with a bonus so we can
+//      validate shapes and ordering safely.
 //
-// No gameplay behavior is changed; this is purely observational.
-//
-// v0.1: The HP logging is now tracked *per-map* using the
-//       map generation index, so this module also serves as an
-//       example of how to keep lightweight per-map state.
+// The actual combat modification hooks (hit / damage / crit) will be
+// layered on top of this in separate modules once the battle math
+// events are in place.
 
 #include "engine/skills.hpp"
 #include "engine/bus.hpp"
 #include "engine/events.hpp"
 #include "util/debug_log.hpp"
+#include "core/runtime.hpp"  // TurnSideToString
 
+#include <cstddef>
 #include <cstdint>
 
 namespace Fates {
 namespace Engine {
+namespace Skills {
 
 namespace {
 
-// TEMP: Debug skill ID that marks units whose HP changes log.
-// Feel free to change this to a proper custom skill ID.
-constexpr std::uint16_t kDebugSkillId = 0x000E;
+// ---------------------------------------------------------------------
+// Basic per-map skill table
+// ---------------------------------------------------------------------
+//
+// For now this is intentionally simple:
+//   * Keyed by raw Unit*.
+//   * Fixed caps on units + skills per unit.
+//   * Populated only by UNIT_SkillLearn (level-ups, scrolls, scripts).
+//
+// This is enough to drive “custom skill” experiments and global auras
+// without committing to a heavy-weight data model.
 
-// Tiny side-table of units that have the debug skill.
-// Track raw unit pointers (UnitHandle::Raw()) and do a linear scan.
-// This is intentionally small and simple.
-constexpr int kMaxDebugSkillUnits = 64;
+constexpr std::size_t kMaxTrackedUnits     = 256;
+constexpr std::size_t kMaxSkillsPerUnit    = 8;
 
-void *sDebugSkillUnits[kMaxDebugSkillUnits] = {};
-int   sNumDebugSkillUnits = 0;
+// Reuse the same debug skill ID you were using in hooks_handlers.cpp
+// so existing test setups keep working.
+constexpr std::uint16_t kDebugSkillId      = 0x000E;
 
-// One-time initialisation guard for Skills::InitDebugSkills().
-bool sInitialized = false;
+// Tunable debug constant: flat damage bonus per HP-change event.
+// Set to 0 to effectively disable, >0 to see the hypothetical total.
+constexpr int           kDebugFlatDamageBonus = 1;
 
-// Per-map logging state for HP-change events.
-// We track which map generation we've seen and how many lines
-// we've logged for that generation, then cap at 64 per map.
-struct DebugHpLogState
+struct UnitSkillSet
 {
-    unsigned int lastGeneration;
-    int          countThisMap;
+    void           *unit;                     // raw Unit*
+    std::uint16_t   skills[kMaxSkillsPerUnit];
+    std::uint8_t    numSkills;
 };
 
-DebugHpLogState sHpLogState = { 0u, 0 };
+static UnitSkillSet gUnitSkills[kMaxTrackedUnits];
+static std::size_t  gNumUnitSkillSets = 0;
 
-void ClearDebugSkillUnits()
+// Clear all per-map skill state (called on plugin load + MapBegin).
+static void ResetAllSkillSets()
 {
-    sNumDebugSkillUnits = 0;
+    gNumUnitSkillSets = 0;
+
+    for (std::size_t i = 0; i < kMaxTrackedUnits; ++i)
+    {
+        gUnitSkills[i].unit      = nullptr;
+        gUnitSkills[i].numSkills = 0;
+        for (std::size_t j = 0; j < kMaxSkillsPerUnit; ++j)
+            gUnitSkills[i].skills[j] = 0;
+    }
 }
 
-// Add a unit to the debug-skill table if there's room. No-op if
-// it's already present.
-void RegisterDebugSkillUnit(void *unitRaw)
+static UnitSkillSet *FindSkillSet(void *unitRaw)
 {
     if (unitRaw == nullptr)
-        return;
+        return nullptr;
 
-    // Already tracked?
-    for (int i = 0; i < sNumDebugSkillUnits; ++i)
+    for (std::size_t i = 0; i < gNumUnitSkillSets; ++i)
     {
-        if (sDebugSkillUnits[i] == unitRaw)
-            return;
+        if (gUnitSkills[i].unit == unitRaw)
+            return &gUnitSkills[i];
     }
-
-    if (sNumDebugSkillUnits >= kMaxDebugSkillUnits)
-    {
-        static bool sLogged = false;
-        if (!sLogged)
-        {
-            Logf("SkillEngine[Debug]: debug-skill table full (cap=%d)", kMaxDebugSkillUnits);
-            sLogged = true;
-        }
-        return;
-    }
-
-    sDebugSkillUnits[sNumDebugSkillUnits++] = unitRaw;
-
-    Logf("SkillEngine[Debug]: unit=%p marked as having debug skill (count=%d)",
-         unitRaw,
-         sNumDebugSkillUnits);
+    return nullptr;
 }
 
-// Check if a unit is in the debug-skill table.
-bool UnitHasDebugSkill(void *unitRaw)
+static UnitSkillSet *FindOrCreateSkillSet(void *unitRaw)
 {
     if (unitRaw == nullptr)
+        return nullptr;
+
+    if (UnitSkillSet *set = FindSkillSet(unitRaw))
+        return set;
+
+    if (gNumUnitSkillSets >= kMaxTrackedUnits)
+        return nullptr;
+
+    UnitSkillSet &slot = gUnitSkills[gNumUnitSkillSets++];
+    slot.unit      = unitRaw;
+    slot.numSkills = 0;
+    for (std::size_t j = 0; j < kMaxSkillsPerUnit; ++j)
+        slot.skills[j] = 0;
+
+    return &slot;
+}
+
+static bool AddSkillToSet(UnitSkillSet &set, std::uint16_t skillId)
+{
+    if (skillId == 0)
         return false;
 
-    for (int i = 0; i < sNumDebugSkillUnits; ++i)
+    // Avoid duplicates.
+    for (std::uint8_t i = 0; i < set.numSkills; ++i)
     {
-        if (sDebugSkillUnits[i] == unitRaw)
+        if (set.skills[i] == skillId)
+            return false;
+    }
+
+    if (set.numSkills >= kMaxSkillsPerUnit)
+        return false;
+
+    set.skills[set.numSkills++] = skillId;
+    return true;
+}
+
+static bool UnitHasSkillInternal(void *unitRaw, std::uint16_t skillId)
+{
+    if (unitRaw == nullptr || skillId == 0)
+        return false;
+
+    UnitSkillSet *set = FindSkillSet(unitRaw);
+    if (!set)
+        return false;
+
+    for (std::uint8_t i = 0; i < set->numSkills; ++i)
+    {
+        if (set->skills[i] == skillId)
             return true;
     }
     return false;
 }
 
-// == Bus handlers ====================================================
+// ---------------------------------------------------------------------
+// HP-change debug observer
+// ---------------------------------------------------------------------
+//
+// Simple HP-change handler that *observes* damage and logs what a
+// flat bonus would do. It does NOT write back to the unit yet.
+//
+// As a small step towards "real skills", this is now gated by the
+// presence of kDebugSkillId on the damage source unit.
 
-// Map end: clear per-map skill state.
-void MapEnd_DebugSkillReset(const MapContext &ctx)
+void HpChange_DebugFlatDamage(const HpChangeContext &ctx)
 {
-    (void)ctx;
-
-    ClearDebugSkillUnits();
-    sHpLogState.countThisMap = 0;
-    sHpLogState.lastGeneration = 0u;
-
-    Logf("SkillEngine[Debug]: MapEnd -> cleared debug-skill table and reset HP log state");
-}
-
-// Skill learn: if a unit successfully learns the debug skill, track it.
-void SkillLearn_DebugTrackUnit(const SkillLearnContext &ctx)
-{
-    // Only care about successful learns.
-    if (ctx.result <= 0)
+    // We only care about *damage* for this test.
+    // Convention: amount > 0 = damage, amount < 0 = healing.
+    const int baseAmount = ctx.core.amount;
+    if (baseAmount <= 0)
         return;
 
-    if (ctx.skillId != kDebugSkillId)
+    // Only apply this hypothetical bonus if the *source* unit has
+    // the debug test skill.
+    void *srcRaw = ctx.core.source.Raw();
+    if (!UnitHasSkillInternal(srcRaw, kDebugSkillId))
         return;
 
-    void *unitRaw = ctx.unit.Raw();
-    RegisterDebugSkillUnit(unitRaw);
-}
-
-// HP change: log HP changes only if the *target* has the debug skill.
-// Logging is capped *per map* using the generation index.
-void HpChange_DebugLogForMarkedUnit(const HpChangeContext &ctx)
-{
-    const HpEvent &ev = ctx.core;
-
-    void *targetUnit = ev.target.Raw();
-    if (targetUnit == nullptr)
+    const int bonusAmount = kDebugFlatDamageBonus;
+    if (bonusAmount == 0)
         return;
 
-    if (!UnitHasDebugSkill(targetUnit))
+    const int totalAmount = baseAmount + bonusAmount;
+
+    // Log cap so we don't spam the file to death on big maps.
+    static int sLogCount = 0;
+    if (sLogCount >= 128)
         return;
 
-    // Handle map-generation boundaries. If the generation changes,
-    // treat it as a new map and reset the per-map log counter.
-    unsigned int gen = static_cast<unsigned int>(ctx.map.generation);
-    if (gen != sHpLogState.lastGeneration)
-    {
-        sHpLogState.lastGeneration = gen;
-        sHpLogState.countThisMap   = 0;
-    }
+    ++sLogCount;
 
-    // Lightweight logging so that the handler is firing, but capped
-    // per map so it won't spam the log indefinitely.
-    if (sHpLogState.countThisMap >= 64)
-        return;
-
-    ++sHpLogState.countThisMap;
-
-    Logf("SkillEngine[Debug]: HpChange unit=%p amt=%d flags=0x%08X gen=%u side=%s sideTurn=%u (log=%d/64)",
-         targetUnit,
-         ev.amount,
-         static_cast<unsigned>(ev.flags),
+    Logf("[Skills::DebugFlatDamage] src=%p tgt=%p "
+         "base=%d bonus=%d -> total=%d "
+         "(gen=%u side=%s sideTurn=%u totalTurns=%u, n=%d)",
+         ctx.core.source.Raw(),
+         ctx.core.target.Raw(),
+         baseAmount,
+         bonusAmount,
+         totalAmount,
          static_cast<unsigned>(ctx.map.generation),
          TurnSideToString(ctx.turn.side),
          static_cast<unsigned>(ctx.turn.sideTurnIndex),
-         sHpLogState.countThisMap);
+         static_cast<unsigned>(ctx.map.totalTurns),
+         sLogCount);
+}
+
+// Guard so InitDebugSkills() is idempotent even if called twice.
+bool sRegistered = false;
+
+// MapBegin handler: reset per-map skill state.
+static void HandleMapBegin(const MapContext &ctx)
+{
+    (void)ctx;
+
+    ResetAllSkillSets();
+
+    Logf("Skills: ResetAllSkillSets for new map (gen=%u)",
+         static_cast<unsigned>(ctx.generation));
 }
 
 } // anonymous namespace
 
-namespace Skills {
+// ---------------------------------------------------------------------
+// Public entrypoints
+// ---------------------------------------------------------------------
 
 void InitDebugSkills()
 {
-    if (sInitialized)
+    if (sRegistered)
         return;
 
-    sInitialized = true;
-    ClearDebugSkillUnits();
-    sHpLogState.lastGeneration = 0u;
-    sHpLogState.countThisMap   = 0;
+    // Clear any stale state in case the plugin survives across maps.
+    ResetAllSkillSets();
 
-    bool okEnd   = RegisterMapEndHandler(&MapEnd_DebugSkillReset);
-    bool okLearn = RegisterSkillLearnHandler(&SkillLearn_DebugTrackUnit);
-    bool okHp    = RegisterHpChangeHandler(&HpChange_DebugLogForMarkedUnit);
+    bool ok = true;
 
-    if (!okEnd || !okLearn || !okHp)
+    // Keep skill tables scoped per map.
+    ok = ok && ::Fates::Engine::RegisterMapBeginHandler(&HandleMapBegin);
+
+    // Register our HP-change listener with the engine bus.
+    ok = ok && ::Fates::Engine::RegisterHpChangeHandler(
+        &HpChange_DebugFlatDamage);
+
+    sRegistered = ok;
+
+    Logf("Engine::Skills::InitDebugSkills: handlers -> %s",
+         ok ? "OK" : "FAILED");
+}
+
+// Called from Hook_UNIT_SkillLearn (hooks_handlers.cpp).
+void OnUnitSkillLearnRaw(void          *unitRaw,
+                         std::uint16_t  skillId,
+                         std::uint16_t  flags,
+                         std::uint32_t  result,
+                         TurnSide       side)
+{
+    (void)flags;
+    (void)side;
+
+    if (unitRaw == nullptr || skillId == 0 || result == 0)
+        return;
+
+    UnitSkillSet *set = FindOrCreateSkillSet(unitRaw);
+    if (!set)
+        return;
+
+    bool added = AddSkillToSet(*set, skillId);
+    if (!added)
+        return;
+
+    static int sLogCount = 0;
+    if (sLogCount < 64)
     {
-        Logf("SkillEngine[Debug]: InitDebugSkills FAILED (end=%d learn=%d hp=%d)",
-             okEnd ? 1 : 0,
-             okLearn ? 1 : 0,
-             okHp ? 1 : 0);
-    }
-    else
-    {
-        Logf("SkillEngine[Debug]: InitDebugSkills complete (debugSkillId=0x%04X, hpLogCapPerMap=%d)",
-             static_cast<unsigned>(kDebugSkillId),
-             64);
+        Logf("Skills::OnUnitSkillLearnRaw: unit=%p skill=0x%04X "
+             "result=%u side=%s (n=%d)",
+             unitRaw,
+             static_cast<unsigned>(skillId),
+             static_cast<unsigned>(result),
+             TurnSideToString(side),
+             sLogCount + 1);
+        ++sLogCount;
     }
 }
 
-} // namespace Skills
-
-namespace {
-
-// Static bootstrap so debug skill is registered automatically
-// when the plugin is loaded. If you ever prefer explicit initialisation,
-// you can remove this and instead call
-// Fates::Engine::Skills::InitDebugSkills();
-struct SkillEngineBootstrap
+bool UnitHasSkill(void          *unitRaw,
+                  std::uint16_t  skillId)
 {
-    SkillEngineBootstrap()
+    return UnitHasSkillInternal(unitRaw, skillId);
+}
+
+// ---------------------------------------------------------------------
+// Static bootstrap
+// ---------------------------------------------------------------------
+//
+// This tiny struct ensures InitDebugSkills() runs automatically
+// when the plugin is loaded, without you having to call it from
+// main.cpp or anywhere else.
+//
+
+struct SkillsBootstrap
+{
+    SkillsBootstrap()
     {
-        Skills::InitDebugSkills();
+        InitDebugSkills();
     }
 };
 
-static SkillEngineBootstrap sSkillEngineBootstrap;
+static SkillsBootstrap sSkillsBootstrap;
 
-} // anonymous namespace
-
+} // namespace Skills
 } // namespace Engine
 } // namespace Fates

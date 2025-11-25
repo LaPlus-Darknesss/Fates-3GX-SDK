@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include "engine/types.hpp"
+#include "core/runtime.hpp"
 
 namespace Fates {
 namespace Engine {
@@ -54,6 +55,20 @@ const SideHpStats *HpKillTracker_GetSideStats();
 /// modify it.
 void HpKillTracker_GetUnitStats(const UnitHpStatsSnapshot *&outArray,
                                 std::size_t               &outCount);
+
+/// Convenience: return stats for a specific side, or nullptr if
+/// the side is Unknown or out of range. Pointer is valid only for
+/// the current map (reset on MapBegin).
+const SideHpStats *HpKillTracker_GetSideStatsFor(TurnSide side);
+
+/// Convenience: query per-unit HP stats for a specific unit.
+/// Returns true and fills outStats if the unit has a registered
+/// entry this map, or false if the unit has not taken damage or
+/// received healing yet.
+///
+/// outStats is a by-value snapshot; callers own the copy.
+bool HpKillTracker_QueryUnitStats(UnitHandle              unit,
+                                  UnitHpStatsSnapshot    &outStats);
 
 } // namespace Engine
 } // namespace Fates

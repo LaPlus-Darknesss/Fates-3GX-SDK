@@ -19,6 +19,7 @@
 #include "util/debug_log.hpp"
 #include "hook_debug.hpp"   // DumpHookCountsToFile / DumpKillEventsToLog
 #include "engine/events.hpp"
+#include "engine/skills.hpp"   // NEW: bridge into skill engine
 
 using namespace CTRPluginFramework;
 
@@ -320,6 +321,9 @@ int Hook_BTL_HitCalc_Main(int hitRate)
     // Call the original RandomCalculateHit(int).
     HookContext &ctx = HookContext::GetCurrent();
     int result = ctx.OriginalFunction<int, int>(hitRate);
+	
+	 // engine-level hit summary (map/turn aware).
+    Engine::OnHitCalc(hitRate, result);
 
     // Light logging window 
     static int sLogCount = 0;
@@ -1526,7 +1530,7 @@ int Hook_UNIT_SkillLearn(void          *unitRaw,
     // Only treat real, successful learns as meaningful.
     if (skillIdRaw != 0 && result != 0)
     {
-        // 1) Feed our per-map debug skill tracker.
+        // 1) Legacy debug tracker (used for RE logging in BTL_FinalDamage_Pre).
         DebugSkills_OnSkillLearn(payload.unit,
                                  payload.skillId);
 
@@ -1536,11 +1540,18 @@ int Hook_UNIT_SkillLearn(void          *unitRaw,
                                  payload.flags,
                                  result,
                                  gCurrentTurnSide);
+
+        // 3) Skills engine bridge: keep a simple per-unit skill table
+        //    that other engine modules can query.
+        Engine::Skills::OnUnitSkillLearnRaw(unitRaw,
+                                            payload.skillId,
+                                            payload.flags,
+                                            result,
+                                            gCurrentTurnSide);
     }
 
     return result;
 }
-
 
 void Hook_SEQ_UnitMove(void *seq)
 {
