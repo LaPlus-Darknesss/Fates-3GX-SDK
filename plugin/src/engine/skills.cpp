@@ -22,6 +22,7 @@
 #include "engine/events.hpp"
 #include "util/debug_log.hpp"
 #include "core/runtime.hpp"  // TurnSideToString
+#include "engine/combat.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -200,6 +201,57 @@ void HpChange_DebugFlatDamage(const HpChangeContext &ctx)
          sLogCount);
 }
 
+// ---------------------------------------------------------------------
+// Post-battle HP modifier: real "+damage if skill" test
+// ---------------------------------------------------------------------
+//
+// This runs in the post-battle HP pipeline (Combat::ApplyPostBattleHpModifiers).
+// It applies a flat extra damage amount by subtracting HP from the
+// target's post-battle HP value, but only if the attacker has the
+// debug test skill 0x000E.
+static int HpPost_DebugFlatDamage(
+    const ::Fates::Engine::Combat::PostBattleHpContext &ctx,
+    int                                                 currentHp)
+{
+    // Only care about the main battle mode for now.
+    if (ctx.mode != 0)
+        return currentHp;
+
+    // Require an attacker with the debug test skill.
+    void *srcRaw = ctx.attacker.Raw();
+    if (!UnitHasSkillInternal(srcRaw, kDebugSkillId))
+        return currentHp;
+
+    const int bonus = kDebugFlatDamageBonus;
+    if (bonus <= 0)
+        return currentHp;
+
+    int newHp = currentHp - bonus;
+
+    // Optional: small log so we can see this actually firing.
+    static int sLogCount = 0;
+    if (sLogCount < 64)
+    {
+        Logf("[Skills::DebugFlatDamage/Post] atk=%p slot=%d "
+             "hpIn=%d bonus=%d -> hpOut=%d "
+             "(gen=%u side=%s sideTurn=%u totalTurns=%u, n=%d)",
+             srcRaw,
+             ctx.slot,
+             currentHp,
+             bonus,
+             newHp,
+             static_cast<unsigned>(ctx.map.generation),
+             TurnSideToString(ctx.turn.side),
+             static_cast<unsigned>(ctx.turn.sideTurnIndex),
+             static_cast<unsigned>(ctx.map.totalTurns),
+             sLogCount + 1);
+        ++sLogCount;
+    }
+
+    return newHp;
+}
+
+
 // Guard so InitDebugSkills() is idempotent even if called twice.
 bool sRegistered = false;
 
@@ -233,9 +285,14 @@ void InitDebugSkills()
     // Keep skill tables scoped per map.
     ok = ok && ::Fates::Engine::RegisterMapBeginHandler(&HandleMapBegin);
 
-    // Register our HP-change listener with the engine bus.
+    // Register our HP-change listener with the engine bus (log-only).
     ok = ok && ::Fates::Engine::RegisterHpChangeHandler(
         &HpChange_DebugFlatDamage);
+
+    // Register our *real* post-battle HP modifier so skills can
+    // actually change damage numbers.
+    ok = ok && ::Fates::Engine::Combat::RegisterPostBattleHpModifier(
+        &HpPost_DebugFlatDamage);
 
     sRegistered = ok;
 

@@ -21,6 +21,7 @@
 #include "hook_debug.hpp"   // DumpHookCountsToFile / DumpKillEventsToLog
 #include "engine/events.hpp"
 #include "engine/skills.hpp"   // NEW: bridge into skill engine
+#include "engine/combat.hpp"   // NEW: post-battle HP pipeline
 
 using namespace CTRPluginFramework;
 
@@ -289,14 +290,6 @@ static inline void MapLife_OnNewMap(void *seq, TurnSide side)
 // Tracks the most recent battle root observed in BTL_FinalDamage_Pre.
 static Fates::BattleRoot *sLastBattleRoot = nullptr;
 
-// Debug knobs for the HP overlay.
-//
-// Leave this disabled (-1) for normal play. 
-// Mostly a leftover from earlier tests, needs to be cleaned up.
-static constexpr int kDebugTestSlotIndex = -1;  // 0..3 to target a slot, -1 = off
-static constexpr int kDebugHpDelta       = 1;   // subtract 1 HP when enabled
-static constexpr int kDebugMaxMods       = 16;  // safety cap
-
 // Forward decl (defined later).
 extern "C" int Hook_SEQ_HpDamage_Helper(void *a0,
                                void *a1,
@@ -554,65 +547,27 @@ void Hook_BTL_GuardGauge_Spend(void * battleContext,
 // HP and map damage hooks
 // ---------------------------------------------------------------------
 
-// Apply testing post-debug adjustment (currently a no-op because
-// kDebugTestSlotIndex == -1). This is RE scaffolding, not part of the
-// public SDK surface.
+// Internal glue: call into the combat engine's post-battle HP
+// modifier pipeline. Name kept for historical reasons.
 static std::uint32_t ApplyPostBattleHpDebug(void *seq,
                                             int   mode,
                                             int   slot,
                                             std::uint32_t hp)
 {
-    //
-    // 1) Future: real post-battle HP effects (currently a no-op)
-    //
-    if (mode == 0 && sLastBattleRoot != nullptr)
-    {
-        // TODO: inspect sLastBattleRoot and apply
-        // real post-battle auras / poison / regen etc here 
-    }
+    using namespace Fates;
 
-    //
-    // 2) Optional debug overlay ("subtract kDebugHpDelta from slot X") Revisit to see if this needs to removed.
-    //
+    void *attackerRaw = nullptr;
+    if (sLastBattleRoot != nullptr)
+        attackerRaw = static_cast<void *>(sLastBattleRoot->mainUnit);
 
-    if (mode != 0)
-        return hp;
-
-    // Debug disabled unless kDebugTestSlotIndex is in [0, 3].
-    if (kDebugTestSlotIndex < 0 || kDebugTestSlotIndex > 3)
-        return hp;
-
-    // Only affect the chosen slot (0–3).
-    if (slot != kDebugTestSlotIndex)
-        return hp;
-
-    static int sModCount = 0;
-    if (sModCount >= kDebugMaxMods)
-        return hp;
-
-    // Don’t bother if the unit is already at 0.
-    if (hp == 0)
-        return 0;
-
-    const std::uint32_t delta = static_cast<std::uint32_t>(kDebugHpDelta);
-    std::uint32_t oldHp = hp;
-    std::uint32_t newHp = (hp > delta) ? (hp - delta) : 0u;
-
-    if (newHp != oldHp)
-    {
-        ++sModCount;
-
-        Logf("    [MOD] slot=%d oldHp=%u newHp=%u (mode=%d root=%p main=%p)",
-             slot,
-             oldHp,
-             newHp,
-             mode,
-             sLastBattleRoot,
-             sLastBattleRoot ? sLastBattleRoot->mainUnit : nullptr);
-    }
-
-    return newHp;
+    return Engine::Combat::ApplyPostBattleHpModifiers(
+        seq,
+        mode,
+        slot,
+        hp,
+        attackerRaw);
 }
+
 
 void Hook_SEQ_HpDamage(void *seq,
                        int   mode)
