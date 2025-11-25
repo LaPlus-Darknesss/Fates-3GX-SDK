@@ -256,11 +256,14 @@ void OnHitCalc(int baseRate,
 
 // Canonical HP sync driver. Called from Hook_UNIT_UpdateCloneHP
 // after the game's own logic has written the unit's HP. Track
-// the last seen HP per unit and emit an HpChange event when 
+// the last seen HP per unit and emit an HpChange event when we
 // detect a delta.
 //
-// Convention: amount > 0 = damage taken, amount < 0 = healing received.
+// NOTE: This is now the *only* place that should synthesize
+// Engine::OnHpChange() calls. All HP-change logic should hang off
+// the bus via DispatchHpChange(), not directly mutate in hooks.
 void OnUnitHpSync(void *unit, int newHp)
+
 {
     if (unit == nullptr)
         return;
@@ -282,15 +285,26 @@ void OnUnitHpSync(void *unit, int newHp)
     int delta = prev - newHp;  // >0 damage, <0 heal
 
     // OPTIONAL: extra diagnostics, capped, and gated behind HP debug toggle.
-    static int sHpSyncLogCount = 0;
+    static std::uint32_t sLastGeneration = 0;
+    static int           sHpSyncLogCount = 0;
+
+    if (gMapState.generation != sLastGeneration)
+    {
+        sLastGeneration   = gMapState.generation;
+        sHpSyncLogCount   = 0;
+    }
+
     if (gHpApplyLogEnabled && sHpSyncLogCount < 64)
     {
-        Logf("Engine::OnUnitHpSync: unit=%p prev=%d new=%d delta=%d mapActive=%d",
+        Logf("Engine::OnUnitHpSync: unit=%p prev=%d new=%d delta=%d mapActive=%d "
+             "(gen=%u, n=%d)",
              unit,
              prev,
              newHp,
              delta,
-             gMapState.mapActive ? 1 : 0);
+             gMapState.mapActive ? 1 : 0,
+             static_cast<unsigned>(gMapState.generation),
+             sHpSyncLogCount + 1);
         ++sHpSyncLogCount;
     }
 
@@ -331,12 +345,20 @@ void OnHpChange(void *sourceUnit,
     hc.map  = mc;
     hc.turn = tc;
 
-    // Lightweight log with a cap 
-    static int sLogCount = 0;
+    // Lightweight log with a cap, reset per map generation.
+    static std::uint32_t sLastGeneration = 0;
+    static int           sLogCount       = 0;
+
+    if (mc.generation != sLastGeneration)
+    {
+        sLastGeneration = mc.generation;
+        sLogCount       = 0;
+    }
+
     if (gHpApplyLogEnabled && sLogCount < 128)
     {
         Logf("Engine::OnHpChange: src=%p tgt=%p amt=%d flags=0x%08X "
-             "gen=%u side=%s sideTurn=%u totalTurns=%u",
+             "gen=%u side=%s sideTurn=%u totalTurns=%u (n=%d)",
              ev.source.Raw(),
              ev.target.Raw(),
              amount,
@@ -344,11 +366,14 @@ void OnHpChange(void *sourceUnit,
              static_cast<unsigned>(mc.generation),
              TurnSideToString(side),
              static_cast<unsigned>(tc.sideTurnIndex),
-             static_cast<unsigned>(mc.totalTurns));
+             static_cast<unsigned>(tc.map.totalTurns),
+             sLogCount + 1);
         ++sLogCount;
     }
 
-    // Fan out to future HP listeners.
+    // Fan out to future HP listeners. This is the single canonical
+    // HP-change dispatcher; hooks should never call bus dispatch
+    // functions directly.
     DispatchHpChange(hc);
 }
 

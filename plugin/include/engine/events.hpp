@@ -188,7 +188,8 @@ void OnItemGain(void *seqHelper,
                 int   result,
                 TurnSide side);
 // Generic "action ended" hook (attack, wait, etc).
-// Currently used for structured logging only; no bus dispatch yet.
+// Currently used for structured logging only; no bus dispatch yet
+// (but the signature is stable for a future ActionEndContext if needed).
 void OnActionEnd(void *inst,
                  void *seqMap,
                  void *cmdData,
@@ -196,6 +197,7 @@ void OnActionEnd(void *inst,
                  std::uint32_t sideRaw,
                  TurnSide side,
                  std::uint32_t unk28);
+
 				 
 // Called from Hook_BTL_HitCalc_Main.
 // Provides a high-level view of hit RNG without modifying it (yet).

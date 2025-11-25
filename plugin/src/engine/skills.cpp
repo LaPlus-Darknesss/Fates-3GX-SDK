@@ -47,8 +47,8 @@ namespace {
 constexpr std::size_t kMaxTrackedUnits     = 256;
 constexpr std::size_t kMaxSkillsPerUnit    = 8;
 
-// Reuse the same debug skill ID you were using in hooks_handlers.cpp
-// so existing test setups keep working.
+// Reuse the same debug skill ID as the legacy table in hooks_handlers.cpp.
+// That table is RE-only; this module is the canonical "engine view" of skills.
 constexpr std::uint16_t kDebugSkillId      = 0x000E;
 
 // Tunable debug constant: flat damage bonus per HP-change event.

@@ -11,6 +11,7 @@
 //
 
 #include <CTRPluginFramework.hpp>
+#include <cstddef>   // for std::size_t
 #include <cstdint>
 
 #include "core/hooks.hpp"
@@ -98,9 +99,7 @@ namespace Fates
 
         return (side <= 3) ? side : 0xFF;
     }
-	// Forward declaration so MapLife_OnNewMap can call this helper.
-    static inline void DebugSkills_Reset();
-	
+
 // Called when detect a NEW map root in Hook_SEQ_MapStart.
 static inline void MapLife_OnNewMap(void *seq, TurnSide side)
 {
@@ -124,13 +123,14 @@ static inline void MapLife_OnNewMap(void *seq, TurnSide side)
     ResetMapStats();
 
     // NOTE:
-    // I intentionally *do not* reset the debug-skill table here.
+    // We intentionally *do not* reset the legacy debug-skill table here.
     // Units that were given the debug skill (0x000E) during data
-    // load *before* the first map should still be visible during
-    // combat on that map.
-    // If you are reading this, in first public release these most
-	// likely are disabled and just serve as docs to clean 
-	// up later.
+    // load *before* the first map should still be visible in RE logs.
+    //
+    // The *canonical* per-map skill view lives in engine/skills.cpp
+    // (Skills::InitDebugSkills + Skills::OnUnitSkillLearnRaw).
+    // This legacy table is RE-only scaffolding and may be removed
+    // in a future cleanup.
     // DebugSkills_Reset();
 }
 
@@ -185,13 +185,13 @@ static inline void MapLife_OnNewMap(void *seq, TurnSide side)
     // LEGACY debug-skill tracking (per-map, Unit* -> "has debug skill").
     //
     // NOTE: This table is only used for extra logging in
-    // Hook_BTL_FinalDamage_Pre and Hook_UNIT_SkillLearn. The *recommended*
-    // way to work with skills at the SDK layer is via engine/skills.cpp
-    // and the event bus (Engine::Skills::InitDebugSkills, HpChange handlers).
+    // Hook_BTL_FinalDamage_Pre and Hook_UNIT_SkillLearn. The *canonical*
+    // path for skills at the SDK layer is engine/skills.cpp +
+    // the event bus (Engine::Skills::InitDebugSkills, HpChange handlers).
     //
-    // Left in place for ongoing RE and will likely be replaced or removed
-    // once the skill engine stabilises.
-    // -----------------------------------------------------------------   
+    // Left in place for ongoing RE; safe to remove once the skill engine
+    // fully takes over your experiments.
+    // -----------------------------------------------------------------
 
     // Hard-coded debug skill ID for now; messy and serves only for testing
     static constexpr std::uint16_t kDebugSkillId  = 0x000E;
@@ -890,11 +890,11 @@ int Hook_SEQ_HpDamage_Helper(void *a0,
     );
 
     // Canonical HP-change events are now derived from
-    // UNIT_UpdateCloneHP via Engine::OnUnitHpSync, don't emit
-    // OnHpChange directly from this helper anymore.
-
+    // UNIT_UpdateCloneHP via Engine::OnUnitHpSync; do not re-introduce
+    // direct Engine::OnHpChange calls from this helper.
     return result;
 }
+
 
 int Hook_SEQ_ItemGain(void *seqHelper,
                       void *unit,
