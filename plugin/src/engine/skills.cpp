@@ -49,10 +49,6 @@ namespace {
 constexpr std::size_t kMaxTrackedUnits  = 256;
 constexpr std::size_t kMaxSkillsPerUnit = 8;
 
-// Reuse the same debug skill ID as the legacy table in hooks_handlers.cpp.
-// That table is RE-only; this module is the canonical "engine view" of skills.
-constexpr std::uint16_t kDebugSkillId = 0x000E;
-
 // Tunable debug constant: flat damage bonus.
 // Used both by the HP-change logger (hypothetical) and the real
 // final-damage modifier. Set to 0 to effectively disable, >0 to
@@ -152,28 +148,60 @@ static bool UnitHasSkillInternal(void *unitRaw, std::uint16_t skillId)
     return false;
 }
 
+// Simple helper: “is this unit present in our per-map skill table at all?”
+static bool IsTrackedUnit(void *unitRaw)
+{
+    if (unitRaw == nullptr)
+        return false;
+
+    return FindSkillSet(unitRaw) != nullptr;
+}
+
 // ---------------------------------------------------------------------
-// HP-change debug observer (read-only)
+// HP-change debug observer (read-only) with probes
 // ---------------------------------------------------------------------
 //
 // Simple HP-change handler that *observes* damage and logs what a
 // flat bonus would do. It does NOT write back to the unit.
 //
-// As a small step towards "real skills", this is gated by the
-// presence of kDebugSkillId on the damage source unit.
+// For now the hypothetical bonus is gated only on the acting side
+// (player-side / Side1) so tests are stable and do not depend on
+// any particular skill ID being learned.
 
 void HpChange_DebugFlatDamage(const HpChangeContext &ctx)
 {
-    // We only care about *damage* for this test.
-    // Convention: amount > 0 = damage, amount < 0 = healing.
+    // PROBE: log the first 64 HP events so we can see what pointers,
+    // sides and tracking flags we're actually getting.
+    static int sProbeCount = 0;
+    if (sProbeCount < 64)
+    {
+        void *src = ctx.core.source.Raw();
+        void *tgt = ctx.core.target.Raw();
+
+        bool srcTracked = IsTrackedUnit(src);
+        bool tgtTracked = IsTrackedUnit(tgt);
+
+        Logf("[Skills::HpProbe] amt=%d src=%p tgt=%p "
+             "srcTracked=%d tgtTracked=%d side=%s",
+             ctx.core.amount,
+             src,
+             tgt,
+             srcTracked ? 1 : 0,
+             tgtTracked ? 1 : 0,
+             TurnSideToString(ctx.turn.side));
+
+        ++sProbeCount;
+    }
+
+    // Be conservative about sign: treat *any* non-zero as "interesting".
     const int baseAmount = ctx.core.amount;
-    if (baseAmount <= 0)
+    if (baseAmount == 0)
         return;
 
-    // Only apply this hypothetical bonus if the *source* unit has
-    // the debug test skill.
-    void *srcRaw = ctx.core.source.Raw();
-    if (!UnitHasSkillInternal(srcRaw, kDebugSkillId))
+    // New stable gating: only consider player-side HP changes.
+    // This keeps tests simple and avoids depending on any specific
+    // skill ID being learned.
+    if (ctx.turn.side != TurnSide::Side1)
         return;
 
     const int bonusAmount = kDebugFlatDamageBonus;
@@ -189,11 +217,8 @@ void HpChange_DebugFlatDamage(const HpChangeContext &ctx)
 
     ++sLogCount;
 
-    Logf("[Skills::DebugFlatDamage] src=%p tgt=%p "
-         "base=%d bonus=%d -> total=%d "
+    Logf("[Skills::DebugFlatDamage] (HP) base=%d bonus=%d -> total=%d "
          "(gen=%u side=%s sideTurn=%u totalTurns=%u, n=%d)",
-         ctx.core.source.Raw(),
-         ctx.core.target.Raw(),
          baseAmount,
          bonusAmount,
          totalAmount,
@@ -204,8 +229,9 @@ void HpChange_DebugFlatDamage(const HpChangeContext &ctx)
          sLogCount);
 }
 
+
 // ---------------------------------------------------------------------
-// Final damage modifier: real "+damage if skill" test
+// Final damage modifier: real "+damage" test
 // ---------------------------------------------------------------------
 //
 // This runs in the final damage pipeline (Combat::ApplyDamageModifiers),
@@ -213,17 +239,35 @@ void HpChange_DebugFlatDamage(const HpChangeContext &ctx)
 // number vanilla uses, so it affects both the forecast window and the
 // HP loss.
 //
-// For now it's a flat bonus if the attacker has kDebugSkillId.
+// For now it's a flat bonus on player-side attacks (Side1).
 static int Damage_DebugFlatBonus(
     const ::Fates::Engine::Combat::DamageContext &ctx,
     int                                           currentDamage)
 {
     void *srcRaw = ctx.attacker.Raw();
+
+    // PROBE: log first 32 damage-modifier calls.
+    static int sProbeCount = 0;
+    if (sProbeCount < 32)
+    {
+        bool tracked = IsTrackedUnit(srcRaw);
+
+        Logf("[Skills::DmgProbe] atk=%p base=%d cur=%d "
+             "srcTracked=%d side=%s",
+             srcRaw,
+             ctx.baseDamage,
+             currentDamage,
+             tracked ? 1 : 0,
+             TurnSideToString(ctx.turn.side));
+
+        ++sProbeCount;
+    }
+
     if (!srcRaw)
         return currentDamage;
 
-    // Only apply if the attacker has the debug test skill.
-    if (!UnitHasSkillInternal(srcRaw, kDebugSkillId))
+    // New stable gating: only apply the bonus for player-side attacks.
+    if (ctx.turn.side != TurnSide::Side1)
         return currentDamage;
 
     const int bonus = kDebugFlatDamageBonus;
@@ -256,6 +300,7 @@ static int Damage_DebugFlatBonus(
     return newDamage;
 }
 
+
 // Guard so InitDebugSkills() is idempotent even if called twice.
 bool sRegistered = false;
 
@@ -268,6 +313,23 @@ static void HandleMapBegin(const MapContext &ctx)
 
     Logf("Skills: ResetAllSkillSets for new map (gen=%u)",
          static_cast<unsigned>(ctx.generation));
+}
+
+static void DebugDumpSkillSets()
+{
+    Logf("[Skills::DebugDump] gNumUnitSkillSets=%u",
+         static_cast<unsigned>(gNumUnitSkillSets));
+    for (std::size_t i = 0; i < gNumUnitSkillSets; ++i)
+    {
+        UnitSkillSet &set = gUnitSkills[i];
+        Logf("[Skills::DebugDump] %02u: unit=%p num=%u "
+             "s[0..7]={%04X,%04X,%04X,%04X,%04X,%04X,%04X,%04X}",
+             static_cast<unsigned>(i),
+             set.unit,
+             static_cast<unsigned>(set.numSkills),
+             set.skills[0], set.skills[1], set.skills[2], set.skills[3],
+             set.skills[4], set.skills[5], set.skills[6], set.skills[7]);
+    }
 }
 
 } // anonymous namespace
@@ -293,8 +355,8 @@ void InitDebugSkills()
     ok = ok && ::Fates::Engine::RegisterHpChangeHandler(
         &HpChange_DebugFlatDamage);
 
-    // Register our *real* final-damage modifier so skills can
-    // actually change the number vanilla uses.
+    // Register our *real* final-damage modifier so we can see a tiny,
+    // deterministic change in the forecast for player-side attacks.
     ok = ok && ::Fates::Engine::Combat::RegisterDamageModifier(
         &Damage_DebugFlatBonus);
 
@@ -336,6 +398,13 @@ void OnUnitSkillLearnRaw(void          *unitRaw,
              TurnSideToString(side),
              sLogCount + 1);
         ++sLogCount;
+    }
+
+    static bool sDumped = false;
+    if (!sDumped)
+    {
+        DebugDumpSkillSets();
+        sDumped = true;
     }
 }
 

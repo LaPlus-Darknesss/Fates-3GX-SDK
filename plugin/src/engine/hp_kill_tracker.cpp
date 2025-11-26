@@ -270,5 +270,25 @@ bool HpKillTracker_QueryUnitStats(UnitHandle           unit,
     return false;
 }
 
+// ---------------------------------------------------------------------
+// Static bootstrap
+// ---------------------------------------------------------------------
+//
+// This tiny struct ensures HpKillTracker_RegisterHandlers() runs
+// automatically when the plugin is loaded, after the bus is available.
+// You don't need to call it manually from main.cpp.
+//
+
+struct HpKillTrackerBootstrap
+{
+    HpKillTrackerBootstrap()
+    {
+        HpKillTracker_RegisterHandlers();
+    }
+};
+
+// One global instance; its constructor runs at load time.
+static HpKillTrackerBootstrap sHpKillTrackerBootstrap;
+
 } // namespace Engine
 } // namespace Fates

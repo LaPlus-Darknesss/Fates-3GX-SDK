@@ -23,13 +23,17 @@ namespace Skills {
 // Initialise the skill engine (idempotent).
 // Currently this:
 //
-//   * Resets internal skill tables.
-//   * Registers a MapBegin handler to clear state per map.
-//   * Registers a debug HP-change observer.
+//   * Resets internal per-map skill tables.
+//   * Registers a MapBegin handler to clear state each map.
+//   * Registers a debug HP-change observer (logging only).
+//   * Registers a debug final-damage modifier so player-side attacks
+//     get a tiny flat bonus that shows up in forecast damage. This
+//     gives us a concrete, easy-to-see end-to-end test.
 //
 // You don't need to call this yourself; it is invoked automatically
 // at plugin startup by a small static bootstrap in skills.cpp.
 void InitDebugSkills();
+
 
 // ---------------------------------------------------------------------
 // Hooks-layer bridge
