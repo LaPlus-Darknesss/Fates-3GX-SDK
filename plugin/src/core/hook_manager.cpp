@@ -8,14 +8,14 @@
 //  - Verify guard words before patching to protect against mismatched code.bin.
 //  - Provide helpers to enable/disable all hooks at once.
 
+#include <cstddef>
+#include <cstdint>
 
 #include <CTRPluginFramework.hpp>
 #include "core/hook_manager.hpp"
 #include "core/hooks.hpp"
 #include "core/handlers.hpp"
 #include "util/debug_log.hpp"
-
-
 
 namespace Fates
 {
@@ -27,36 +27,37 @@ namespace Fates
 
     // Simple guard verifier: compare the first 3 words at targetVA
     // against the guard[] pattern from the catalog.
-static bool VerifyGuard(const HookEntry &entry)
-{
-    // Always compare guards against a T-bit–cleared, 4-byte-aligned VA.
-    const u32 baseVA = entry.targetVA & ~1u;
-    const auto *cur  = reinterpret_cast<const std::uint32_t *>(baseVA);
-
-    std::uint32_t current[3];
-    if (entry.guard[0] || entry.guard[1] || entry.guard[2])
+    static bool VerifyGuard(const HookEntry &entry)
     {
-        current[0] = cur[0];
-        current[1] = cur[1];
-        current[2] = cur[2];
+        // Always compare guards against a T-bit–cleared, 4-byte-aligned VA.
+        const std::uint32_t baseVA = entry.targetVA & ~1u;
+        const auto *cur = reinterpret_cast<const std::uint32_t *>(baseVA);
 
-        if (current[0] != entry.guard[0] ||
-            current[1] != entry.guard[1] ||
-            current[2] != entry.guard[2])
+        std::uint32_t current[3];
+
+        // Only perform the comparison if at least one guard word is non-zero.
+        if (entry.guard[0] || entry.guard[1] || entry.guard[2])
         {
-            Logf("HookManager: guard mismatch for %s at 0x%08lX "
-                 "(cur=%08lX %08lX %08lX, exp=%08lX %08lX %08lX)",
-                 entry.name,
-                 static_cast<unsigned long>(baseVA),
-                 current[0], current[1], current[2],
-                 entry.guard[0], entry.guard[1], entry.guard[2]);
-            return false;
+            current[0] = cur[0];
+            current[1] = cur[1];
+            current[2] = cur[2];
+
+            if (current[0] != entry.guard[0] ||
+                current[1] != entry.guard[1] ||
+                current[2] != entry.guard[2])
+            {
+                Logf("HookManager: guard mismatch for %s at 0x%08lX "
+                     "(cur=%08lX %08lX %08lX, exp=%08lX %08lX %08lX)",
+                     entry.name,
+                     static_cast<unsigned long>(baseVA),
+                     current[0], current[1], current[2],
+                     entry.guard[0], entry.guard[1], entry.guard[2]);
+                return false;
+            }
         }
+
+        return true;
     }
-
-    return true;
-}
-
 
     void HookManager::Init()
     {
@@ -65,7 +66,7 @@ static bool VerifyGuard(const HookEntry &entry)
 
         sInitialised = true;
 
-        // Default-construct all Hook objects
+        // Default-construct all Hook objects.
         for (auto &h : sHooks)
             h = Hook();
     }
@@ -77,71 +78,83 @@ static bool VerifyGuard(const HookEntry &entry)
 
     void *HookManager::GetHandler(HookId id)
     {
-        // Map HookId -> C stub.  These stubs are declared in
+        // Map HookId -> C stub. These stubs are declared in
         // core/handlers.hpp and implemented in hooks_handlers.cpp.
         switch (id)
         {
-            case HookId_BTL_HitCalc_Main:
-                return reinterpret_cast<void *>(&Hook_BTL_HitCalc_Main);
-            case HookId_BTL_CritCalc_Main:
-                return reinterpret_cast<void *>(&Hook_BTL_CritCalc_Main);
-            case HookId_BTL_FinalDamage_Pre:
-                return reinterpret_cast<void *>(&Hook_BTL_FinalDamage_Pre);
-            case HookId_BTL_FinalDamage_Post:
-                return reinterpret_cast<void *>(&Hook_BTL_FinalDamage_Post);
-            case HookId_BTL_GuardGauge_Add:
-                return reinterpret_cast<void *>(&Hook_BTL_GuardGauge_Add);
-            case HookId_BTL_GuardGauge_Spend:
-                return reinterpret_cast<void *>(&Hook_BTL_GuardGauge_Spend);
-            case HookId_SEQ_HpDamage:
-				return reinterpret_cast<void *>(&Hook_SEQ_HpDamage);
-			case HookId_UNIT_HpDamage:
-				return reinterpret_cast<void *>(&Hook_UNIT_HpDamage);
-			case HookId_UNIT_UpdateCloneHP:
-				return reinterpret_cast<void *>(&Hook_UNIT_UpdateCloneHP);
-            case HookId_HP_KillCheck:
-                return reinterpret_cast<void *>(&Hook_HP_KillCheck);
-            case HookId_SEQ_HpDamage_Helper:
-                return reinterpret_cast<void *>(&Hook_SEQ_HpDamage_Helper);
-			case HookId_SEQ_ItemGain:
-				return reinterpret_cast<void *>(&Hook_SEQ_ItemGain);
-            case HookId_MAP_ProcSkillDamage:
-                return reinterpret_cast<void *>(&Hook_MAP_ProcSkillDamage);
-            case HookId_MAP_ProcTerrainDamage:
-                return reinterpret_cast<void *>(&Hook_MAP_ProcTerrainDamage);
-            case HookId_MAP_ProcTrickDamage:
-                return reinterpret_cast<void *>(&Hook_MAP_ProcTrickDamage);
-            case HookId_EVENT_ActionEnd:
-                return reinterpret_cast<void *>(&Hook_EVENT_ActionEnd);
-            case HookId_BTL_AttackStance_Check:
-                return reinterpret_cast<void *>(&Hook_BTL_AttackStance_Check);
-            case HookId_BTL_AttackStance_ApplySupport:
-                return reinterpret_cast<void *>(&Hook_BTL_AttackStance_ApplySupport);
-            case HookId_HUD_Battle_HPGaugeUpdate:
-                return reinterpret_cast<void *>(&Hook_HUD_Battle_HPGaugeUpdate);
-            case HookId_BTL_SkillEffect_Apply:
-                return reinterpret_cast<void *>(&Hook_BTL_SkillEffect_Apply);
-			case HookId_SYS_Rng32:
-                return reinterpret_cast<void *>(&Hook_SYS_Rng32);
-			case HookId_SEQ_TurnBegin:
-				return reinterpret_cast<void *>(&Hook_SEQ_TurnBegin);
-			case HookId_SEQ_TurnEnd:
-				return reinterpret_cast<void *>(&Hook_SEQ_TurnEnd);
-			case HookId_SEQ_MapEnd:
-				return reinterpret_cast<void *>(&Hook_SEQ_MapEnd);
-			case HookId_SEQ_MapStart:
-				return reinterpret_cast<void *>(&Hook_SEQ_MapStart);
-			case HookId_SEQ_ItemUse:
-				return reinterpret_cast<void *>(&Hook_SEQ_ItemUse);
-			case HookId_UNIT_LevelUp:
-				return reinterpret_cast<void *>(&Hook_UNIT_LevelUp);
-			case HookId_UNIT_SkillLearn:
-				return reinterpret_cast<void *>(&Hook_UNIT_SkillLearn);
-			case HookId_SEQ_UnitMove:
-				return reinterpret_cast<void *>(&Hook_SEQ_UnitMove);
-			
-            default:
-                return nullptr;
+        case HookId_BTL_HitCalc_Main:
+            return reinterpret_cast<void *>(&Hook_BTL_HitCalc_Main);
+        case HookId_BTL_CritCalc_Main:
+            return reinterpret_cast<void *>(&Hook_BTL_CritCalc_Main);
+        case HookId_BTL_FinalDamage_Pre:
+            return reinterpret_cast<void *>(&Hook_BTL_FinalDamage_Pre);
+        case HookId_BTL_FinalDamage_Post:
+            return reinterpret_cast<void *>(&Hook_BTL_FinalDamage_Post);
+        case HookId_BTL_GuardGauge_Add:
+            return reinterpret_cast<void *>(&Hook_BTL_GuardGauge_Add);
+        case HookId_BTL_GuardGauge_Spend:
+            return reinterpret_cast<void *>(&Hook_BTL_GuardGauge_Spend);
+        case HookId_SEQ_HpDamage:
+            return reinterpret_cast<void *>(&Hook_SEQ_HpDamage);
+        case HookId_UNIT_HpDamage:
+            return reinterpret_cast<void *>(&Hook_UNIT_HpDamage);
+        case HookId_UNIT_UpdateCloneHP:
+            return reinterpret_cast<void *>(&Hook_UNIT_UpdateCloneHP);
+        case HookId_HP_KillCheck:
+            return reinterpret_cast<void *>(&Hook_HP_KillCheck);
+        case HookId_SEQ_HpDamage_Helper:
+            return reinterpret_cast<void *>(&Hook_SEQ_HpDamage_Helper);
+        case HookId_SEQ_ItemGain:
+            return reinterpret_cast<void *>(&Hook_SEQ_ItemGain);
+        case HookId_MAP_ProcSkillDamage:
+            return reinterpret_cast<void *>(&Hook_MAP_ProcSkillDamage);
+        case HookId_MAP_ProcTerrainDamage:
+            return reinterpret_cast<void *>(&Hook_MAP_ProcTerrainDamage);
+        case HookId_MAP_ProcTrickDamage:
+            return reinterpret_cast<void *>(&Hook_MAP_ProcTrickDamage);
+        case HookId_EVENT_ActionEnd:
+            return reinterpret_cast<void *>(&Hook_EVENT_ActionEnd);
+        case HookId_BTL_AttackStance_Check:
+            return reinterpret_cast<void *>(&Hook_BTL_AttackStance_Check);
+        case HookId_BTL_AttackStance_ApplySupport:
+            return reinterpret_cast<void *>(&Hook_BTL_AttackStance_ApplySupport);
+        case HookId_HUD_Battle_HPGaugeUpdate:
+            return reinterpret_cast<void *>(&Hook_HUD_Battle_HPGaugeUpdate);
+        case HookId_BTL_SkillEffect_Apply:
+            return reinterpret_cast<void *>(&Hook_BTL_SkillEffect_Apply);
+        case HookId_SYS_Rng32:
+            return reinterpret_cast<void *>(&Hook_SYS_Rng32);
+        case HookId_SEQ_TurnBegin:
+            return reinterpret_cast<void *>(&Hook_SEQ_TurnBegin);
+        case HookId_SEQ_TurnEnd:
+            return reinterpret_cast<void *>(&Hook_SEQ_TurnEnd);
+        case HookId_SEQ_MapEnd:
+            return reinterpret_cast<void *>(&Hook_SEQ_MapEnd);
+        case HookId_SEQ_MapStart:
+            return reinterpret_cast<void *>(&Hook_SEQ_MapStart);
+        case HookId_SEQ_ItemUse:
+            return reinterpret_cast<void *>(&Hook_SEQ_ItemUse);
+        case HookId_UNIT_LevelUp:
+            return reinterpret_cast<void *>(&Hook_UNIT_LevelUp);
+        case HookId_UNIT_SkillLearn:
+            return reinterpret_cast<void *>(&Hook_UNIT_SkillLearn);
+        case HookId_SEQ_UnitMove:
+            return reinterpret_cast<void *>(&Hook_SEQ_UnitMove);
+        case HookId_UNIT_HasSkillById:
+            return reinterpret_cast<void *>(&Hook_UNIT_HasSkillById);
+        case HookId_MAP_BattleInfoSide_CalcEfficacy:
+            return reinterpret_cast<void *>(&Hook_MAP_BattleInfoSide_CalcEfficacy);
+        case HookId_HUD_HpWindow_Draw:
+            return reinterpret_cast<void *>(&Hook_HUD_HpWindow_Draw);
+        case HookId_MAP_EquipSkillCalculator_Calculate:
+            return reinterpret_cast<void *>(&Hook_MAP_EquipSkillCalculator_Calculate);
+        case HookId_MAP_BattleCalculator_CalculateAttack:
+            return reinterpret_cast<void *>(&Hook_MAP_BattleCalculator_CalculateAttack);
+        case HookId_MAP_BattleInfo_CalculateSimple:
+            return reinterpret_cast<void *>(&Hook_MAP_BattleInfo_CalculateSimple);
+
+        default:
+            return nullptr;
         }
     }
 
@@ -175,34 +188,33 @@ static bool VerifyGuard(const HookEntry &entry)
                 continue;
             }
 
-Hook &hook = sHooks[static_cast<std::size_t>(entry.id)];
+            Hook &hook = sHooks[static_cast<std::size_t>(entry.id)];
 
-// Canonical, T-bit–cleared VA 
-const u32 rawVA        = entry.targetVA & ~1u;
-u32       targetAddr   = rawVA;
-const u32 callbackAddr = reinterpret_cast<u32>(handler);
+            // Canonical, T-bit–cleared VA.
+            const std::uint32_t rawVA = entry.targetVA & ~1u;
+            std::uint32_t targetAddr = rawVA;
+            const std::uint32_t callbackAddr = reinterpret_cast<std::uint32_t>(handler);
 
-// Enforce T-bit based on isThumb.
-//  - ARM  : even address
-//  - Thumb: odd address
-if (entry.isThumb)
-    targetAddr |= 1u;
-else
-    targetAddr &= ~1u;
+            // Enforce T-bit based on isThumb.
+            //  - ARM  : even address
+            //  - Thumb: odd address
+            if (entry.isThumb)
+                targetAddr |= 1u;
+            else
+                targetAddr &= ~1u;
 
-Logf("HookManager: installing '%s' (MITM) raw=0x%08lX hookVA=0x%08lX -> 0x%08lX (thumb=%s)",
-     entry.name,
-     static_cast<unsigned long>(rawVA),
-     static_cast<unsigned long>(targetAddr),
-     static_cast<unsigned long>(callbackAddr),
-     entry.isThumb ? "true" : "false");
+            Logf("HookManager: installing '%s' (MITM) raw=0x%08lX hookVA=0x%08lX -> 0x%08lX (thumb=%s)",
+                 entry.name,
+                 static_cast<unsigned long>(rawVA),
+                 static_cast<unsigned long>(targetAddr),
+                 static_cast<unsigned long>(callbackAddr),
+                 entry.isThumb ? "true" : "false");
 
-// MITM mode so HookContext::OriginalFunction works
-hook.InitializeForMitm(targetAddr, callbackAddr);
-auto result = hook.Enable();
-Logf("HookManager: '%s' Enable() -> %d",
-     entry.name, static_cast<int>(result));
-
+            // MITM mode so HookContext::OriginalFunction works.
+            hook.InitializeForMitm(targetAddr, callbackAddr);
+            auto result = hook.Enable();
+            Logf("HookManager: '%s' Enable() -> %d",
+                 entry.name, static_cast<int>(result));
         }
 
         Logf("HookManager::InstallByStability(%d) - end",
@@ -216,15 +228,16 @@ Logf("HookManager: '%s' Enable() -> %d",
 
     void HookManager::InstallOptionalHooks()
     {
-		// Install all hooks marked HookStability::Optional.
-		// WARNING: most Optional hooks are RE candidates or unstable and
-		// should only be enabled when you know what you’re doing.
+        // Install all hooks marked HookStability::Optional.
+        // WARNING: most Optional hooks are RE candidates or unstable and
+        // should only be enabled when you know what you're doing.
         InstallByStability(HookStability::Optional);
     }
 
     void HookManager::InstallAll()
     {
-        // "All" = Core Hooks only.
+        // For now "All" is equivalent to "Core" to keep things stable
+        // by default. Optional/experimental hooks remain opt-in.
         InstallCoreHooks();
     }
 
@@ -238,6 +251,12 @@ Logf("HookManager: '%s' Enable() -> %d",
     {
         for (std::size_t i = 0; i < kNumHooks; ++i)
             sHooks[i].Disable();
+    }
+
+    // Free helper: expose the underlying CTRPF Hook for a given HookId.
+    Hook &GetHookRef(HookId id)
+    {
+        return HookManager::sHooks[static_cast<std::size_t>(id)];
     }
 
 } // namespace Fates

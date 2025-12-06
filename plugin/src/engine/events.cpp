@@ -11,8 +11,8 @@
 //      engine/bus.cpp.
 //
 // Later, separate engine subsystems (HP engine, skill engine,
-// UI overlays, etc.) will register handlers
-// with the bus instead of touching hooks directly.
+// UI overlays, etc.) will register handlers with the bus instead of
+// touching hooks directly.
 
 #include <unordered_map>
 
@@ -27,7 +27,6 @@ namespace Engine {
 // from raw UNIT_UpdateCloneHP sync calls.
 // Keys are raw Unit* pointers (identity-based). The map is cleared on
 // each Engine::OnMapBegin so HP deltas don't leak across maps.
-
 struct HpTracker
 {
     std::unordered_map<void*, int> lastHp;
@@ -55,7 +54,7 @@ static TurnContext BuildTurnContext(TurnSide side)
     tc.map  = BuildMapContext();
     tc.side = side;
 
-    // Side index 0..3 maps directly to gMapState.turnCount[]
+    // Side index 0..3 maps directly to gMapState.turnCount[].
     int idx = static_cast<int>(side);
     if (0 <= idx && idx < 4)
         tc.sideTurnIndex = gMapState.turnCount[idx];
@@ -67,11 +66,11 @@ static TurnContext BuildTurnContext(TurnSide side)
 
 void OnMapBegin(void *seqRoot, TurnSide side)
 {
-    // New map: clear the per-map HP tracker so no mixing deltas
+    // New map: clear the per-map HP tracker so we don't mix deltas
     // across different battles.
     gHpTracker.lastHp.clear();
-	
-	// NOTE: Hook_SEQ_MapStart calls MapLife_OnNewMap() *before* this,
+
+    // NOTE: Hook_SEQ_MapStart calls MapLife_OnNewMap() *before* this,
     // so BuildMapContext() already sees the new generation and reset
     // per-map counters.
     MapContext mc = BuildMapContext();
@@ -259,11 +258,10 @@ void OnHitCalc(int baseRate,
 // the last seen HP per unit and emit an HpChange event when we
 // detect a delta.
 //
-// NOTE: This is now the *only* place that should synthesize
+// NOTE: This is the *only* place that should synthesize
 // Engine::OnHpChange() calls. All HP-change logic should hang off
 // the bus via DispatchHpChange(), not directly mutate in hooks.
 void OnUnitHpSync(void *unit, int newHp)
-
 {
     if (unit == nullptr)
         return;
@@ -475,7 +473,7 @@ void OnActionEnd(void *inst,
                  TurnSide side,
                  std::uint32_t unk28)
 {
-    // Build map/turn snapshots so can correlate actions later.
+    // Build map/turn snapshots so we can correlate actions later.
     TurnContext tc = BuildTurnContext(side);
     MapContext  mc = tc.map;
 

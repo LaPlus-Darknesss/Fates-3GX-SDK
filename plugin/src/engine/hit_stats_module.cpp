@@ -28,20 +28,20 @@ struct HitSideStats
 
 struct HitStats
 {
-    HitSideStats  bySide[4];       // Side1..Side4 mapped to [0..3]
+    HitSideStats  bySide[4];       // Side0..Side3 mapped to [0..3]
     std::uint32_t totalAttempts = 0;
     std::uint32_t totalHits     = 0;
 };
 
 static HitStats gHitStats;
+static bool     sRegistered = false;
 
 // Map TurnSide -> index [0..3], or -1 if Unknown / out of range.
 static int SideToIndex(TurnSide side)
 {
     int s = static_cast<int>(side);
-    // In your runtime, Side1 == 1, Side2 == 2, etc., Unknown == 0
-    if (s >= 1 && s <= 4)
-        return s - 1;
+    if (s >= 0 && s < 4)
+        return s;
     return -1;
 }
 
@@ -87,9 +87,10 @@ static void HandleMapEnd(const MapContext &ctx)
         const std::uint32_t h = gHitStats.bySide[i].hits;
         const std::uint32_t r = (a > 0) ? (h * 100u / a) : 0u;
 
-        // Sides are 1-based in logging.
-        Logf("HitStatsModule:  side S%d attempts=%u hits=%u hitRate=%u%%",
-             i + 1,
+        TurnSide side = static_cast<TurnSide>(i);
+
+        Logf("HitStatsModule:  side=%s attempts=%u hits=%u hitRate=%u%%",
+             TurnSideToString(side),
              static_cast<unsigned>(a),
              static_cast<unsigned>(h),
              static_cast<unsigned>(r));
@@ -138,6 +139,9 @@ static void HandleHitCalc(const HitCalcContext &ctx)
 
 bool HitStatsModule_RegisterHandlers()
 {
+    if (sRegistered)
+        return true;
+
     bool ok = true;
 
     ok = ok && RegisterMapBeginHandler(&HandleMapBegin);
@@ -145,9 +149,14 @@ bool HitStatsModule_RegisterHandlers()
     ok = ok && RegisterHitCalcHandler(&HandleHitCalc);
 
     if (!ok)
+    {
         Logf("HitStatsModule_RegisterHandlers: FAILED");
+    }
     else
+    {
+        sRegistered = true;
         Logf("HitStatsModule_RegisterHandlers: handlers registered");
+    }
 
     return ok;
 }

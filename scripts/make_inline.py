@@ -165,11 +165,12 @@ def main():
         dest="outfile",
         default=str(BUILD / "code_mod.bin"),
     )
-    # IMPORTANT: write header where plugin includes it:
+    # NOTE: This header is legacy inline metadata only.
+    # It is NOT used by the CTRPF plugin runtime anymore.
     ap.add_argument(
         "--gen",
         dest="genhdr",
-        default=str(REPO / "plugin" / "include" / "hooks_table.hpp"),
+        default=str(BUILD / "hooks_table_inline.hpp"),
     )
     ap.add_argument(
         "--patch-sites",
@@ -182,6 +183,7 @@ def main():
     out = Path(args.outfile)
     gen = Path(args.genhdr)
     BUILD.mkdir(parents=True, exist_ok=True)
+    gen.parent.mkdir(parents=True, exist_ok=True)
 
     exp = read_expected(args.region)
     act = sha1(base)
@@ -301,9 +303,10 @@ def main():
     # Write patched code
     out.write_bytes(mod)
 
-    # Emit header the plugin includes
+    # Emit legacy inline metadata header (not used by CTRPF runtime).
     with open(gen, "w", newline="\n") as f:
-        f.write("// Auto-generated. Do not edit.\n#pragma once\n#include <stdint.h>\n\n")
+        f.write("// Auto-generated inline hook metadata (legacy). Not used by CTRPF runtime.\n")
+        f.write("#pragma once\n#include <stdint.h>\n\n")
         f.write(f"#define CODE_BASE 0x{CODE_BASE:08X}u\n\n")
 
         # Deduplicate names for the enum, but keep kNumHooks = total rows.

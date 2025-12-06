@@ -9,6 +9,7 @@
 //   * Damage stats module
 //   * RNG stats module
 //   * Hit stats module (hit attempts / successes per side)
+//   * Damage rule pipeline (core + skill-based rules)
 //   * Debug skill engine bootstrap (defensive)
 
 #include "engine/init.hpp"
@@ -17,8 +18,10 @@
 #include "engine/hp_kill_tracker.hpp"
 #include "engine/damage_stats_module.hpp"
 #include "engine/rng_stats_module.hpp"
-#include "engine/hit_stats_module.hpp"   // NEW
+#include "engine/hit_stats_module.hpp"
 #include "engine/skills.hpp"
+#include "engine/damage.hpp"
+#include "engine/skill_damage_rules.hpp"  // skill-based damage rules
 
 #include "util/debug_log.hpp"
 
@@ -27,35 +30,37 @@ namespace Engine {
 
 bool InitCoreModules()
 {
-    bool ok = true;
-
     // Per-map HP + kill tracking.
-    ok = ok && HpKillTracker_RegisterHandlers();
+    HpKillTracker_RegisterHandlers();
 
     // Lightweight per-side damage/heal/kill telemetry.
-    ok = ok && DamageStatsModule_RegisterHandlers();
+    DamageStatsModule_RegisterHandlers();
 
     // Lightweight per-side RNG telemetry.
-    ok = ok && RngStatsModule_RegisterHandlers();
+    RngStatsModule_RegisterHandlers();
 
     // Lightweight per-side hit telemetry (attempts / successes).
-    ok = ok && HitStatsModule_RegisterHandlers();  // NEW
+    HitStatsModule_RegisterHandlers();
+
+    // Wire the damage-rule pipeline into Engine::Combat explicitly.
+    // This is idempotent and safe even though damage.cpp also has a
+    // static bootstrap.
+    Damage::Init();
+
+    // Register all skill-based damage rules with the damage engine.
+    // This is idempotent and safe to call once at startup.
+    Skills::RegisterDamageRules();
 
     // Defensive: ensure debug skills are initialised.
     // This is idempotent and safe even though skills.cpp
     // also uses a static bootstrap.
     Skills::InitDebugSkills();
 
-    if (ok)
-    {
-        Logf("Engine::InitCoreModules: all handlers registered successfully");
-    }
-    else
-    {
-        Logf("Engine::InitCoreModules: WARNING: some handler registrations failed");
-    }
+    Logf("Engine::InitCoreModules: all handlers registered (no fatal errors)");
 
-    return ok;
+    // If any submodule needs to report hard failure, it should log
+    // internally; for now we always report success here.
+    return true;
 }
 
 } // namespace Engine

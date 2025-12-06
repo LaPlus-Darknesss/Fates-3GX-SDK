@@ -13,6 +13,8 @@
 #include <cstdint>
 
 #include "engine/bus.hpp"       // Register*Handler, context types
+#include "engine/events.hpp"
+#include "core/runtime.hpp"     // TurnSide, TurnSideToString, gMapState
 #include "util/debug_log.hpp"   // Logf
 
 namespace Fates {
@@ -39,6 +41,7 @@ struct RngStats
 };
 
 static RngStats gRngStats{};
+static bool     sRegistered = false;
 
 // Convert TurnSide to 0..3 index, or -1 if Unknown/out of range.
 static int SideIndex(TurnSide side)
@@ -152,6 +155,9 @@ static void HandleMapEnd(const MapContext &ctx)
 
 bool RngStatsModule_RegisterHandlers()
 {
+    if (sRegistered)
+        return true;
+
     bool ok = true;
 
     ok = ok && RegisterMapBeginHandler(&HandleMapBegin);
@@ -160,6 +166,7 @@ bool RngStatsModule_RegisterHandlers()
 
     if (ok)
     {
+        sRegistered = true;
         Logf("RngStatsModule_RegisterHandlers: handlers registered");
     }
     else

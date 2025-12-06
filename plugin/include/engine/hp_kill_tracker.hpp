@@ -35,9 +35,10 @@ struct UnitHpStatsSnapshot
 
 /// Register the HP/kill tracker with the engine bus.
 ///
-/// Call this once during plugin startup (after the bus is available)
+/// This is invoked from Engine::InitCoreModules() during plugin startup
 /// to hook into MapBegin/MapEnd, HpChange, and Kill events.
 ///
+/// The function is idempotent: calling it more than once is safe.
 /// Returns true on success; false if any registration failed.
 bool HpKillTracker_RegisterHandlers();
 

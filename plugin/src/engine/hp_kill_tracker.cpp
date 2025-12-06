@@ -38,6 +38,9 @@ std::uint32_t sTotalKills     = 0;
 std::uint32_t sMapGeneration   = 0;
 std::uint32_t sTotalTurnsAtEnd = 0;
 
+// Registration guard so we don't double-register handlers.
+bool sRegistered = false;
+
 // Helpers ------------------------------------------------------------
 
 // Convert a TurnSide into a 0..3 index, or -1 if Unknown/out of range.
@@ -191,6 +194,9 @@ static void OnKillHandler(const KillContext &kc)
 
 bool HpKillTracker_RegisterHandlers()
 {
+    if (sRegistered)
+        return true;
+
     bool ok = true;
 
     ok &= RegisterMapBeginHandler(&OnMapBeginHandler);
@@ -199,9 +205,14 @@ bool HpKillTracker_RegisterHandlers()
     ok &= RegisterKillHandler(&OnKillHandler);
 
     if (ok)
+    {
+        sRegistered = true;
         Logf("HpKillTracker_RegisterHandlers: registered OK");
+    }
     else
+    {
         Logf("HpKillTracker_RegisterHandlers: FAILED to register one or more handlers");
+    }
 
     return ok;
 }
@@ -269,26 +280,6 @@ bool HpKillTracker_QueryUnitStats(UnitHandle           unit,
 
     return false;
 }
-
-// ---------------------------------------------------------------------
-// Static bootstrap
-// ---------------------------------------------------------------------
-//
-// This tiny struct ensures HpKillTracker_RegisterHandlers() runs
-// automatically when the plugin is loaded, after the bus is available.
-// You don't need to call it manually from main.cpp.
-//
-
-struct HpKillTrackerBootstrap
-{
-    HpKillTrackerBootstrap()
-    {
-        HpKillTracker_RegisterHandlers();
-    }
-};
-
-// One global instance; its constructor runs at load time.
-static HpKillTrackerBootstrap sHpKillTrackerBootstrap;
 
 } // namespace Engine
 } // namespace Fates

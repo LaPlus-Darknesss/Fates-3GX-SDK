@@ -5,7 +5,7 @@
 // has a small fixed-size handler array. Register*Handler() appends,
 // Dispatch*() walks the list and calls each handler.
 //
-// This is intentionally basic C so it's easy to reason
+// This is intentionally basic C-style code so it's easy to reason
 // about and friendly to the 3DS architecture.
 
 #include "engine/bus.hpp"
@@ -22,9 +22,9 @@ constexpr int kMaxMapEndHandlers     = 8;
 constexpr int kMaxTurnBeginHandlers  = 8;
 constexpr int kMaxTurnEndHandlers    = 8;
 constexpr int kMaxKillHandlers       = 8;
-constexpr int kMaxHpChangeHandlers   = 16; 
+constexpr int kMaxHpChangeHandlers   = 16;
 constexpr int kMaxRngHandlers        = 4;
-constexpr int kMaxHitCalcHandlers    = 8;  //
+constexpr int kMaxHitCalcHandlers    = 8;
 constexpr int kMaxLevelUpHandlers    = 4;
 constexpr int kMaxSkillLearnHandlers = 4;
 constexpr int kMaxItemGainHandlers   = 4;
@@ -35,9 +35,9 @@ MapEndHandler     sMapEndHandlers[kMaxMapEndHandlers]         = {};
 TurnBeginHandler  sTurnBeginHandlers[kMaxTurnBeginHandlers]   = {};
 TurnEndHandler    sTurnEndHandlers[kMaxTurnEndHandlers]       = {};
 KillHandler       sKillHandlers[kMaxKillHandlers]             = {};
-HpChangeHandler  sHpChangeHandlers[kMaxHpChangeHandlers]      = {};
+HpChangeHandler   sHpChangeHandlers[kMaxHpChangeHandlers]     = {};
 RngHandler        sRngHandlers[kMaxRngHandlers]               = {};
-HitCalcHandler    sHitCalcHandlers[kMaxHitCalcHandlers]		  = {};
+HitCalcHandler    sHitCalcHandlers[kMaxHitCalcHandlers]       = {};
 LevelUpHandler    sLevelUpHandlers[kMaxLevelUpHandlers]       = {};
 SkillLearnHandler sSkillLearnHandlers[kMaxSkillLearnHandlers] = {};
 ItemGainHandler   sItemGainHandlers[kMaxItemGainHandlers]     = {};
@@ -48,14 +48,18 @@ int sNumTurnBeginHandlers  = 0;
 int sNumTurnEndHandlers    = 0;
 int sNumKillHandlers       = 0;
 int sNumHpChangeHandlers   = 0;
-int sNumHitCalcHandlers    = 0;  
 int sNumRngHandlers        = 0;
+int sNumHitCalcHandlers    = 0;
 int sNumLevelUpHandlers    = 0;
 int sNumSkillLearnHandlers = 0;
 int sNumItemGainHandlers   = 0;
 
 template <typename Fn>
-bool RegisterHandler(Fn fn, Fn *storage, int &count, int capacity, const char *name)
+bool RegisterHandler(Fn fn,
+                     Fn *storage,
+                     int &count,
+                     int capacity,
+                     const char *name)
 {
     if (fn == nullptr)
         return false;

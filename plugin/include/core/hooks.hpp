@@ -47,6 +47,14 @@ enum HookId : std::uint16_t {
     HookId_UNIT_LevelUp,
     HookId_UNIT_SkillLearn,
 	HookId_SEQ_UnitMove,
+	HookId_UNIT_HasSkillById,
+	HookId_MAP_BattleInfoSide_CalcEfficacy,
+    HookId_HUD_HpWindow_Draw,
+	HookId_MAP_EquipSkillCalculator_Calculate,
+    HookId_MAP_BattleCalculator_CalculateAttack,
+	HookId_MAP_BattleInfo_CalculateSimple,
+
+
 
 
     

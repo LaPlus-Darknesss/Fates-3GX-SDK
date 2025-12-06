@@ -12,7 +12,7 @@ namespace Fates {
 namespace Engine {
 
 // Register HitStatsModule handlers with the engine bus.
-// Returns true on success.
+// Intended to be called once at startup; the function is idempotent.
 bool HitStatsModule_RegisterHandlers();
 
 } // namespace Engine

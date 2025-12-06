@@ -1,3 +1,36 @@
 # Fire Emblem Fates (NA) v1.1 – Generic Hook Surface
 region: na_v11
 
+hooks:
+
+  # -------------------------------------------------------------------
+  # Final damage pipeline (inline surfaces)
+  #
+  # B4_FinalDamage_Pre:
+  #   ROM VA  : 0x002628BC
+  #   code VA : 0x003628BC (CODE_BASE 0x00100000 + 0x002628BC)
+  #   guard   : bytes for { 0xE92D4FF7, 0xE24DD070, 0xE1A05000 } in LE.
+  #
+  # This matches the CTRPF hook site used by Hook_BTL_FinalDamage_Pre.
+  # -------------------------------------------------------------------
+  #B4_FinalDamage_Pre:
+  #  addr: 0x002628BC
+  #  guard: "F7 4F 2D E9 70 D0 4D E2 00 50 1A E1"
+  #  purpose: "BTL_FinalDamage entry (pre-clamp final damage; MITM for Combat::ApplyDamageModifiers)."
+
+  # -------------------------------------------------------------------
+  # Legacy candidate: B4_FinalDamage_Post
+  #
+  # This is the older mid-function site at file offset 0x0003B79C with
+  # guard bytes:
+  #   { 0x8590300C, 0x9A000012, 0xE7935102 } ->
+  #   '0C 30 90 85 12 00 00 9A 02 51 93 E7' in little endian.
+  #
+  # It is *not* a clean "post-final-damage" wrapper and should be
+  # considered unstable / RE-only. Kept only so the B4_Post concept
+  # has a concrete entry if you ever want to experiment again.
+  # -------------------------------------------------------------------
+  #B4_FinalDamage_Post:
+  #  addr: 0x0003B79C
+  #  guard: "0C 30 90 85 12 00 00 9A 02 51 93 E7"
+  #  purpose: "Legacy mid-function candidate near post-final-damage; RE-only / optional."

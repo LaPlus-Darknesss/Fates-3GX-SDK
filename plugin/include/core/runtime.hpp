@@ -77,8 +77,8 @@ struct KillEvent
     unsigned int flags;  // raw bitfield from seq+0x280
 };
 
-// Maximum number of kill events we store at once.
-// This is per-session for now; later can reset per map/chapter.
+// Maximum number of kill events we store at once for a single map.
+// ResetMapState/ResetKillEvents clear this per map/chapter.
 static const int kMaxKillEvents = 64;
 
 // Global kill event buffer + count (defined in runtime.cpp).

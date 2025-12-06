@@ -9,8 +9,8 @@
 #pragma once
 
 #include <cstdint>
-#include "core/runtime.hpp"  // TurnSide, KillEvent, gMapState
-#include "engine/types.hpp"
+#include "core/runtime.hpp"  // TurnSide, KillEvent, HpEvent, gMapState
+#include "engine/types.hpp"  // UnitHandle
 
 namespace Fates {
 namespace Engine {
@@ -54,8 +54,8 @@ struct TurnContext
 };
 
 // Extended kill context built from the runtime KillEvent buffer plus
-// the current map/turn summaries. Is not in full use yet, but it's
-// a good layout for later.
+// the current map/turn summaries. Not heavily used yet, but the shape
+// is stable for future systems.
 struct KillContext
 {
     KillEvent   core;  // raw struct from core/runtime.hpp
@@ -65,16 +65,22 @@ struct KillContext
 
 // HP change context: wraps a local HpEvent with map/turn snapshots.
 // Convention: amount > 0 = damage taken, amount < 0 = healing received.
+//
+// At present, HP-change events are synthesized exclusively from
+// UNIT_UpdateCloneHP via OnUnitHpSync(), so they reflect “HP actually
+// changed on the map”, not raw battle forecast numbers. OnHpChange()
+// is the canonical front-door for generating HpChangeContext events.
 struct HpChangeContext
 {
-    HpEvent    core;  // local HP event (source/target/amount/flags/context)
-    MapContext map;   // map snapshot at time of change
-    TurnContext turn; // turn snapshot at time of change
+    HpEvent     core;  // local HP event (source/target/amount/flags/context)
+    MapContext  map;   // map snapshot at time of change
+    TurnContext turn;  // turn snapshot at time of change
 };
 
 // RNG call context. Mostly for telemetry & future “RNG” tooling.
 // Crit calcs will most likely have to go through here at some point.
-// Does not seem to be a dedicated crit address easily hookable.
+// These events are fully wired through the engine bus so modules
+// can register Rng handlers.
 struct RngContext
 {
     MapContext    map;    // map snapshot when RNG is called (may be inactive)
@@ -96,7 +102,7 @@ struct HitCalcContext
     int          result;   // value returned by the core function
 };
 
-// Level-up context
+// Level-up context.
 struct LevelUpContext
 {
     MapContext    map;    // snapshot at time of level-up
@@ -145,22 +151,28 @@ void OnTurnEnd(TurnSide side, void *seqMaybe);
 // "real" kill event.
 void OnKill(const KillEvent &ev, TurnSide side);
 
-// RNG + unit misc events. These are currently log-only; later they’ll
-// fan out through engine/bus once I stabilize the shapes.
+// RNG + unit misc events. These are fully wired into the engine bus
+// (DispatchRngCall, DispatchHitCalc, etc.), so modules can listen in.
 
 void OnRngCall(void *state,
                std::uint32_t raw,
                std::uint32_t bound,
                std::uint32_t result);
 
-// NEW: canonical HP sync driver. Called from Hook_UNIT_UpdateCloneHP.
+// Canonical HP sync driver. Called from Hook_UNIT_UpdateCloneHP.
 // This tracks last HP per unit and, when it detects a change, emits a
-// high-level HpChange event via OnHpChange().
+// high-level HpChange event via OnHpChange(). The final-damage hook
+// (BTL_FinalDamage_Pre) remains read-only and is only used to derive
+// per-battle damage stats, not to drive HP changes directly.
 void OnUnitHpSync(void *unit,
                   int   newHp);
 
 // Generic HP-change event (damage or heal).
 // Convention: amount > 0 = damage taken, amount < 0 = healing received.
+//
+// OnHpChange() is the single canonical front-door for synthesizing
+// HpChangeContext events; in the current wiring it is only called
+// from OnUnitHpSync().
 void OnHpChange(void *sourceUnit,
                 void *targetUnit,
                 int  amount,
@@ -187,6 +199,7 @@ void OnItemGain(void *seqHelper,
                 void *modeOrCtx,
                 int   result,
                 TurnSide side);
+
 // Generic "action ended" hook (attack, wait, etc).
 // Currently used for structured logging only; no bus dispatch yet
 // (but the signature is stable for a future ActionEndContext if needed).
@@ -198,12 +211,10 @@ void OnActionEnd(void *inst,
                  TurnSide side,
                  std::uint32_t unk28);
 
-				 
 // Called from Hook_BTL_HitCalc_Main.
 // Provides a high-level view of hit RNG without modifying it (yet).
 void OnHitCalc(int baseRate,
                int result);
-
 
 } // namespace Engine
 } // namespace Fates

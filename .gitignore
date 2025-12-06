@@ -9,6 +9,10 @@ build/
 *.3gx
 *.map
 
+# Archive
+archive/
+# Ghidra Dumps
+ghidra_dumps/
 
 # Editor / OS noise 
 .DS_Store
@@ -24,3 +28,5 @@ build_config.toml
 Desktop.ini
 desktop.ini
 Thumbs.db
+
+/archives

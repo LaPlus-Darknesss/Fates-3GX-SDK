@@ -2,7 +2,6 @@
 
 #include <CTRPluginFramework.hpp>
 #include <3ds.h>
-#include <cstring>
 #include <cstdio>
 
 #include "util/debug_log.hpp"
@@ -11,19 +10,7 @@
 #include "core/runtime.hpp"
 #include "engine/init.hpp"
 
-
 using namespace CTRPluginFramework;
-
-// Forward-declare the example SDK module init (defined in
-// plugin/src/engine/example_sdk_module.cpp). This is a bundled,
-// non-invasive example showing how to hook into the engine bus.
-namespace Fates {
-namespace Engine {
-namespace Example {
-    void ExampleSdkModule_RegisterHandlers();
-}
-}
-}
 
 // ---------------------------------------------------------------------
 // Simple debug UI: dump MapLifeCycleState to a MessageBox.
@@ -68,20 +55,17 @@ static void ShowMapLifecycleState(MenuEntry *entry)
 void DumpHookTable();   // from hook_table_debug.cpp
 void DumpHookSites();   // from hook_sites_debug.cpp
 
-extern "C" volatile bool gHpApplyLogEnabled;
+// From inline_hp_hooks.cpp – installs the two AttackSingle HP inline hooks.
+void InstallAttackSingleInlineHpHooks();
 
-extern "C" {
-    // No external C stubs are needed at this stage. Test hooks via
-    // the debug menu / hotkeys instead of calling them directly.
-}
-
+// Global run flag for the debug loop.
 static volatile bool gRun = true;
 
 // ---------------------------------------------------------------------
 // Debug thread body (runs on main thread – no CTRPF Thread API used).
+// Most of the hotkeys are obsolete and most events are simply logged
+// instead; will be pruned over time.
 // ---------------------------------------------------------------------
-// Most of the hotkeys are obsolete and most events are simply logged instead, 
-// will be phased out later.
 
 static void DebugThread(void *)
 {
@@ -118,15 +102,15 @@ static void DebugThread(void *)
             hotkeySitesLatched = false;
         }
 
-        // Hotkey: L + R + A + Y -> toggle HP_Apply logging & dump hook counts
+        // Hotkey: L + R + A + Y -> toggle HP-apply logging & dump hook counts
         if (Controller::IsKeysDown(Key::L | Key::R | Key::A | Key::Y))
         {
             if (!hotkeyDumpLatched)
             {
-                gHpApplyLogEnabled = !gHpApplyLogEnabled;
+                Fates::gHpApplyLogEnabled = !Fates::gHpApplyLogEnabled;
 
-                Logf("DebugThread: L+R+A+Y -> Log SEQ_HpDamage %s (iter=%u)",
-                     gHpApplyLogEnabled ? "ENABLED" : "DISABLED",
+                Logf("DebugThread: L+R+A+Y -> Log HP apply %s (iter=%u)",
+                     Fates::gHpApplyLogEnabled ? "ENABLED" : "DISABLED",
                      iter);
 
                 DumpHookCountsToFile();
@@ -190,7 +174,7 @@ static void DebugThread(void *)
 }
 
 // ---------------------------------------------------------------------
-// Simple memory probe: read and log 3 words at a VA, useful for testing, otherwise ignore.
+// Simple memory probe: read and log 3 words at a VA, useful for testing.
 // ---------------------------------------------------------------------
 
 static void ProbeWords(u32 addr, const char *label = nullptr)
@@ -232,23 +216,27 @@ static void MainImpl(void)
     Fates::ResetMapState();
     Logf("MainImpl: ResetMapState() done");
 
-    // Install core hooks 
+    // Install core hooks (runtime MITMs, no inline patches here).
     Fates::HookManager::InstallCoreHooks();
     Logf("MainImpl: HookManager::InstallCoreHooks() returned");
 
+    // Initialise engine modules (events, skills, combat, etc.).
     Logf("MainImpl: InitCoreModules() begin");
     bool engineOk = Fates::Engine::InitCoreModules();
     Logf("MainImpl: InitCoreModules() -> %d", engineOk ? 1 : 0);
 
-    // Install optional hooks as pure MITM pass-through if/when needed.
-    // Do not enable for now; it may cause instability.
+    // Install the inline HP hooks inside map__BattleCalculator__CalculateAttackSingle.
+    InstallAttackSingleInlineHpHooks();
+    Logf("MainImpl: InstallAttackSingleInlineHpHooks() done");
+
+    // Optional hooks remain disabled for now; they can be re-enabled
+    // once we've validated stability.
     // Fates::HookManager::InstallOptionalHooks();
     // Logf("MainImpl: HookManager::InstallOptionalHooks() returned");
 
     // Start the debug loop in this thread (no System::Thread needed).
     Logf("MainImpl: starting debug loop");
     DebugThread(nullptr);
-    Logf("MainImpl: debug loop exited");
 }
 
 namespace CTRPluginFramework
