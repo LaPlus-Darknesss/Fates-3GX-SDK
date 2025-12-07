@@ -15,6 +15,7 @@
 #include "engine/damage.hpp"
 #include "engine/skills.hpp"
 #include "util/debug_log.hpp"
+#include "engine/skill_rule_jakob_unique.hpp" // Example Jakob skill, do not consider this a practical mod
 
 namespace Fates {
 namespace Engine {
@@ -38,10 +39,14 @@ void RegisterDamageRules()
     // Engine::Combat before we start adding rules (now or in future).
     Damage::Init();
 
-    // v2 cleanup: no debug / experimental rules are registered here.
-    // Future phases will add real skill-driven rules on top of this.
-    Logf("SkillDamageRules::RegisterDamageRules: damage pipeline initialised "
-         "with no skill-based rules (passthrough)");
+    // Register Jakob's personal damage rule as a clean, non-debug
+    // reference implementation. Future skills can follow the same
+    // pattern (one TU per rule, registered here).
+    bool okJakob = RegisterJakobUniqueDamageRule();
+
+    Logf("SkillDamageRules::RegisterDamageRules: damage pipeline initialised; "
+         "Jakob rule=%s",
+         okJakob ? "OK" : "FAILED");
 }
 
 } // namespace Skills
