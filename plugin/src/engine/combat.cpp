@@ -76,6 +76,38 @@ void SetCurrentDamageMode(DamageMode mode)
     sCurrentMode = mode;
 }
 
+bool IsDamageModeVanilla()
+{
+    return (GetCurrentDamageMode() == DamageMode::Vanilla);
+}
+
+bool IsDamageModeMirror()
+{
+    return (GetCurrentDamageMode() == DamageMode::Mirror);
+}
+
+bool IsDamageModeFull()
+{
+    return (GetCurrentDamageMode() == DamageMode::Full);
+}
+
+bool ShouldWritebackForecast(int baseDamage, int modifiedDamage)
+{
+    // 1) Only in the aggressive mode.
+    if (!IsDamageModeFull())
+        return false;
+
+    // 2) If the engine's final number matches vanilla, there is
+    //    nothing to write back.
+    if (modifiedDamage == baseDamage)
+        return false;
+
+    // 3) The engine itself already clamps stuff via the pipeline, so
+    //    we don't re-check bounds here. If you ever want to add extra
+    //    safety (e.g. reject absurd values) you can extend this.
+    return true;
+}
+
 bool RegisterDamageModifier(DamageModifierFn fn)
 {
     if (!fn)

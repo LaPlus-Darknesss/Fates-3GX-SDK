@@ -22,6 +22,7 @@
 #include "engine/skills.hpp"
 #include "engine/damage.hpp"
 #include "engine/skill_damage_rules.hpp"  // skill-based damage rules
+#include "engine/combat.hpp"
 
 #include "util/debug_log.hpp"
 
@@ -55,6 +56,11 @@ bool InitCoreModules()
     // This is idempotent and safe even though skills.cpp
     // also uses a static bootstrap.
     Skills::InitDebugSkills();
+
+    // Configure the global damage mode once per plugin boot.
+    // v2: we want the engine to be allowed to change damage numbers,
+    // but forecast write-back is still guarded by hooks-level flags.
+    Combat::SetCurrentDamageMode(Combat::DamageMode::Full);
 
     Logf("Engine::InitCoreModules: all handlers registered (no fatal errors)");
 

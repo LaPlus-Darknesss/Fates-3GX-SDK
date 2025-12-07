@@ -106,6 +106,21 @@ using DamageModifierFn = int(*)(const DamageContext &ctx,
 DamageMode GetCurrentDamageMode();
 void       SetCurrentDamageMode(DamageMode mode);
 
+// Convenience helpers so hook code doesn't need to poke at the enum
+// directly or keep its own duplicate state.
+bool IsDamageModeVanilla();
+bool IsDamageModeMirror();
+bool IsDamageModeFull();
+
+// Forecast writeback policy.
+//
+// High-level rule (v2):
+//   * Only in DamageMode::Full.
+//   * Only if the pipeline's final damage differs from baseDamage.
+//   * Still does NOT perform any writes; hooks remain responsible
+//     for actually updating BattleInfo fields if this returns true.
+bool ShouldWritebackForecast(int baseDamage, int modifiedDamage);
+
 // Register a modifier. Returns true if added, false if null/full.
 bool RegisterDamageModifier(DamageModifierFn fn);
 
