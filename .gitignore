@@ -9,8 +9,6 @@ build/
 *.3gx
 *.map
 
-# Archive
-archive/
 # Ghidra Dumps
 ghidra_dumps/
 
@@ -21,7 +19,7 @@ Thumbs.db
 .vscode/
 *.swp
 
-# Local build configuration (per-user)
+# Local build configuration (Vivian personal)
 build_config.toml
 
 # Windows trash
@@ -29,4 +27,5 @@ Desktop.ini
 desktop.ini
 Thumbs.db
 
+# Archives
 /archives
